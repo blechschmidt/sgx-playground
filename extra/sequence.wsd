@@ -1,0 +1,28 @@
+@startuml sequence
+hide footbox
+
+'participant and actor definitions
+
+actor Verifier as V
+
+box "Remote Backend" #LightGray
+  participant "Server Application" as SA
+  participant "Server Application Enclave" as AE
+  participant "Server Quoting Enclave" as QE
+end box
+
+'sequence of interactions
+
+V -> V:   reproducibly compile code\nof application enclave\nto obtain MRENCLAVE
+V -> SA:  establish a TLS tunnel
+SA -> SA: find quoting enclave identity\n(requires PCCS on the server)
+SA -> AE**: instantiate from\nsigned *.so file
+SA -> AE: request application report
+AE -> AE: generate application\nreport (EREPORT)
+AE --> SA: return report
+SA -> QE: request quote generation for application report
+QE -> QE: generate quote
+QE --> SA: return quote
+SA -> V:  forward quote
+V -> V:  verify quote through PCCS
+@enduml

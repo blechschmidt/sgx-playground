@@ -1,0 +1,67 @@
+name: sgx-playground
+
+services:
+  verify-quote:
+    build:
+      dockerfile: containers/Dockerfile.verify-quote
+  prepare-pccs:
+    image: ubuntu:latest
+    volumes:
+      - .:/mnt/:rw
+      - shared:/shared:rw
+    entrypoint: /mnt/scripts/pccs/prepare
+    environment:
+      API_KEY: ${API_KEY}
+  pccs:
+    depends_on:
+      prepare-pccs:
+        condition: service_completed_successfully
+    volumes:
+      - $PWD/config/pccs/tls/private.pem:/opt/intel/pccs/ssl_key/private.pem
+      - $PWD/config/pccs/tls/file.crt:/opt/intel/pccs/ssl_key/file.crt
+      - $PWD/config/pccs/config.json:/opt/intel/pccs/config/default.json
+    build:
+      dockerfile: containers/Dockerfile.pccs
+      context: .
+    network_mode: host
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    container_name: pccs
+  make:
+    user: ${UID:-1000}:${GID:-1000}
+    build:
+      dockerfile: containers/Dockerfile.build
+    volumes:
+      - .:/mnt/:rw
+    entrypoint:
+      - make
+    working_dir: /mnt/server
+  server:
+    build:
+      dockerfile: containers/Dockerfile.build
+      target: build
+    privileged: true
+    network_mode: host
+    volumes:
+      - /dev/sgx:/dev/sgx:rw
+      - /dev/sgx_enclave:/dev/sgx_enclave:rw
+      - /dev/sgx_provision:/dev/sgx_provision:rw
+      - .:/mnt/:rw
+      - shared:/shared:rw
+  verify:
+    build:
+      target: verify
+    extends:
+      service: make
+    working_dir: /mnt/sgx-client
+    network_mode: host
+    entrypoint:
+      - uv
+      - run
+      - main.py
+      - --compile-command
+      - make -C ../server
+
+volumes:
+  shared:

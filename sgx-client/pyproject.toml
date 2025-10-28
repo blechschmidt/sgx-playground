@@ -1,0 +1,9 @@
+[project]
+name = "sgx-client"
+version = "0.1.0"
+description = "SGX Remote Attestation Verification Client"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "intel-sgx-ra@git+https://github.com/blechschmidt/intel-sgx-ra#egg=merge"
+]

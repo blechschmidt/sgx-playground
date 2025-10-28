@@ -1,0 +1,106 @@
+#!/bin/bash
+
+set -xeo pipefail
+
+random_string() {
+    head -c 32 /dev/urandom | tr -dc 'A-Za-z0-9'
+}
+
+apt -y update && apt -y install openssl
+
+if [ -f "/mnt/config/pccs/.env" ]; then
+    . /mnt/config/pccs/.env
+fi
+
+if [ -z "$API_KEY" ]; then
+    read -p "Enter your Intel PCCS API Key: " API_KEY
+fi
+
+if [ -z "$USER_TOKEN_HASH" ]; then
+    user_password=$(random_string)
+    USER_TOKEN_HASH=$(echo -n "$user_password" | sha256sum | awk '{print $1}')
+    echo "Generated PCCS User Password: $user_password"
+
+fi
+
+if [ -z "$ADMIN_TOKEN_HASH" ]; then
+    admin_password=$(random_string)
+    ADMIN_TOKEN_HASH=$(echo -n "$admin_password" | sha256sum | awk '{print $1}')
+    echo "Generated PCCS Admin Password: $admin_password"
+fi
+
+config_template=$(cat <<'EOF'
+{
+    "HTTPS_PORT" : 8081,
+    "hosts" : "127.0.0.1",
+    "uri": "https://api.trustedservices.intel.com/sgx/certification/v4/",
+    "ApiKey": "${API_KEY}",
+    "proxy" : "",
+    "RefreshSchedule": "0 0 1 * * *",
+    "UserTokenHash" : "${USER_TOKEN_HASH}",
+    "AdminTokenHash" : "${ADMIN_TOKEN_HASH}",
+    "CachingFillMode" : "LAZY",
+    "OPENSSL_FIPS_MODE" : false,
+    "LogLevel" : "info",
+    "DB_CONFIG" : "sqlite",
+    "sqlite" : {
+        "database" : "database",
+        "username" : "username",
+        "password" : "password",
+        "options" : {
+            "host": "localhost",
+            "dialect": "sqlite",
+            "pool": {
+                "max": 5,
+                "min": 0,
+                "acquire": 30000,
+                "idle": 10000
+            },
+            "define": {
+                "freezeTableName": true
+            },
+            "logging" : false, 
+            "storage": "pckcache.db"
+        }
+    }
+}
+EOF
+)
+
+mkdir -p /mnt/config/pccs
+{
+    echo "API_KEY=$API_KEY"
+    echo "USER_TOKEN_HASH=$USER_TOKEN_HASH"
+    echo "ADMIN_TOKEN_HASH=$ADMIN_TOKEN_HASH"
+} > /mnt/config/pccs/.env
+
+config_template=$(sed "s/\${API_KEY}/$API_KEY/g" <<<"$config_template")
+config_template=$(sed "s/\${USER_TOKEN_HASH}/$USER_TOKEN_HASH/g" <<<"$config_template")
+config_template=$(sed "s/\${ADMIN_TOKEN_HASH}/$ADMIN_TOKEN_HASH/g" <<<"$config_template")
+
+cert_subj="/C=US/ST=IA/L=Promise City/O=Evil Corp/OU=SGX Playground/CN=127.0.0.1/emailAddress="
+san="DNS:localhost,IP:127.0.0.1,IP:::1"
+
+mkdir -p /mnt/config/pccs/tls
+
+cd /mnt/config/pccs/tls
+
+if [ ! -e "ca.key" ] && [ ! -e "ca.crt" ]; then
+    echo "Creating CA certificate..."
+    openssl genrsa -out ca.key 4096
+    openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -out ca.crt -subj "/C=US/ST=IA/L=Promise City/O=Evil Corp/OU=SGX Playground/CN=Evil Corp CA/emailAddress="
+    cp ca.crt /shared/
+fi
+
+# If the server certificate or private key do not exist, or the existing certificate is invalid (e.g. expired), create a new one
+if [ ! -e file.crt ] || [ ! -e private.pem ] || [ ! openssl verify -CAfile ca.crt file.crt ]; then
+    echo "Creating certificate for PCCS server..."
+    openssl genrsa -out private.pem 4096
+    openssl req -new -key private.pem -out csr.pem -subj "$cert_subj" -addext "subjectAltName=$san"
+    openssl x509 -req -in csr.pem -CA ca.crt -CAkey ca.key -CAcreateserial -out file.crt -days 825 -sha256 -copy_extensions copyall
+fi
+
+chmod -R 644 *.pem *.crt
+
+cd /mnt/config/pccs
+cat <<<"$config_template" > config.json

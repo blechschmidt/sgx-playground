@@ -1,0 +1,9 @@
+FROM alpine:3.22
+
+ADD https://github.com/blechschmidt/intel-sgx-ra.git#main /opt/intel-sgx-ra
+
+RUN apk --no-cache add uv cargo
+RUN cd /opt/intel-sgx-ra && uv sync && uv pip install -e .
+
+WORKDIR /opt/intel-sgx-ra
+ENTRYPOINT [ "uv", "run", "sgx-ra-verify" ]

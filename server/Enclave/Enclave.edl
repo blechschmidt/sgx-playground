@@ -1,0 +1,15 @@
+enclave {
+    include "sgx_report.h"
+
+    trusted {
+        /* define ECALLs here. */
+        public uint32_t enclave_create_report([in]const sgx_target_info_t* p_qe3_target,
+                                              [out]sgx_report_t* p_report);
+
+        public sgx_status_t enclave_message(
+            [in,count=4096]const uint8_t* p_data,
+            uint32_t data_size,
+            [in,out,count=4096]uint8_t* p_response,
+            [out]uint32_t* p_response_size);
+    };
+};
