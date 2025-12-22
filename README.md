@@ -8,7 +8,7 @@ This is not a production-grade project. It just serves as a minimal example (PoC
 
 In general, this is done as follows:
 1. The code and initial data are loaded into the enclave and are fixed. A hash over this initial configuration is computed (`MRENCLAVE`).
-2. Upon a request (`sgx_create_report`), a "quote" is generated. This quote can be verified through the provisioning certificate caching service contains a signature signed with an Intel key (roughly) over the following:
+2. Upon a request (`sgx_create_report`), a "quote" is generated. This quote can be verified through the provisioning certificate caching service and contains a signature signed with an Intel key (roughly) over the following:
     - a hash over the signer's public key (`MRSIGNER` value, currently unused/unverified in this PoC)
     - a `report_data` field, which in the future will be the hash of a public key whose private key is generated inside the enclave, which in turn can be used to establish a trusted channel into the enclave (currently, it is unused in this PoC)
     - a hash over the code running inside the enclave along with initial enclave configuration (`MRENCLAVE`, verified in this PoC)
