@@ -13,6 +13,8 @@ In general, this is done as follows:
     - a `report_data` field, which in the future will be the hash of a public key whose private key is generated inside the enclave, which in turn can be used to establish a trusted channel into the enclave (currently, it is unused in this PoC)
     - a hash over the code running inside the enclave along with initial enclave configuration (`MRENCLAVE`, verified in this PoC)
 
+![Remote Attestation Sequence](https://raw.githubusercontent.com/blechschmidt/sgx-playground/refs/heads/assets/extra/sequence.png)
+
 ## Quickstart
 
 1. Get an Intel API key from [here](https://api.portal.trustedservices.intel.com/provisioning-certification).
