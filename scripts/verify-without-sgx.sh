@@ -15,10 +15,9 @@
 #                       (default target/nix-enclave/enclave/enclave.so.gendata;
 #                       built with scripts/nix-build-enclave.sh if missing,
 #                       which needs only Docker)
-#   --allow-tcb STATUS  passed on as --allow-tcb-status (repeatable). The
-#                       public executor's platform currently reports
-#                       OutOfDateConfigurationNeeded, which the default
-#                       policy rejects.
+#   --allow-tcb STATUS  passed on as --allow-tcb-status (repeatable): accept
+#                       only UpToDate and these TCB statuses. By default
+#                       echo-client accepts every status except Revoked.
 #   --skip-image        reuse sgx-ra-verify-rs:latest instead of rebuilding
 #
 # Exit code: that of echo-client (0 verified and echoed), or 4 if the

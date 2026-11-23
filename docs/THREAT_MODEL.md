@@ -10,13 +10,12 @@ acceptance policy), [ARCHITECTURE.md](ARCHITECTURE.md) (components,
 reproducible build), [SEALING.md](SEALING.md) (sealing and the long-term
 identity key, with its own host-threat table in §2.1).
 
-> **Status caveat.** The remote executor `sgx-playground.blechschmidt.io`
-> has not produced a quote during this project: its server-side PCCS is
-> unreachable (PROTOCOL.md §5). Every statement below about real hardware is
-> backed by code review, unit tests, the recorded real quote
-> `fixtures/quote_v3.dat` with recorded Intel collateral, synthetic PKIs, and
-> SGX simulation runs. **No positive end-to-end run on SGX hardware has taken
-> place** (issue [TM-10](#tm-10-no-end-to-end-run-on-sgx-hardware)).
+> **Hardware coverage.** The review was first done without a working
+> executor; the statements below were backed by code review, unit tests,
+> the recorded real quote `fixtures/quote_v3.dat` with recorded Intel
+> collateral, synthetic PKIs and SGX simulation runs. Since 2026-11-24 the
+> full flow also passes against the public executor on real SGX hardware
+> ([TM-10](#tm-10-no-end-to-end-run-on-sgx-hardware), resolved).
 
 ---
 
@@ -232,9 +231,17 @@ CONFIGID or uses the provisioning key. Tracked as hardening
 
 ### 4.7 TCB status policy defaults — OK
 
-* Default allowed set: **`UpToDate` only** (`EnclavePolicy::new`,
-  `attestation.rs`, `TcbStatusSet::up_to_date_only()`). The CLI adds
-  statuses only through repeated, explicit `--allow-tcb-status`.
+* Library default: **`UpToDate` only** (`EnclavePolicy::new`,
+  `attestation.rs`, `TcbStatusSet::up_to_date_only()`). Statuses are added
+  only through explicit `allow_tcb_status` calls.
+* `echo-client` default: every status except `Revoked`, so that it works
+  against the public executor, a KVM guest whose operator cannot update
+  the platform TCB (`OutOfDateConfigurationNeeded`). A non-`UpToDate`
+  platform is reported with a warning naming the Intel advisories.
+  `--strict-tcb` restores `UpToDate` only, and `--allow-tcb-status` narrows
+  the set to `UpToDate` plus the listed statuses. Accepting an out-of-date
+  platform means trusting that the listed advisories are not exploited
+  against it.
 * `Revoked` is a hard verifier error (`verify.rs`, `VerifyError::TcbRevoked`)
   that no policy can allow.
 * The QE's TCB status is merged with the platform's like Intel's QVL does
@@ -407,8 +414,9 @@ variants of its trusted libraries, and C/C++ enclaves are built with
 `-mlvi-hardening`. Our Rust code is built for `x86_64-unknown-none` without
 the LLVM `lvi-load-hardening`/`lvi-cfi` features, and links the unhardened
 tRTS. On platforms vulnerable to LVI, Intel reports `SWHardeningNeeded`,
-which the default policy **rejects**. Users who opt in with
-`--allow-tcb-status SWHardeningNeeded` accept that a co-located attacker
+which the library's default policy **rejects** (as does `echo-client
+--strict-tcb`). Users who accept that status, including `echo-client`'s
+default policy, accept that a co-located attacker
 may inject values into transient loads in our enclave.
 *Fix:* build with `-C target-feature=+lvi-load-hardening,+lvi-cfi` (an
 unstable target feature on the pinned toolchain) and link

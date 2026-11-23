@@ -37,9 +37,11 @@ Every failure prints `[FAIL] …` on stderr and exits non-zero.
 * `--pccs-url URL`: Intel PCS by default. A PCCS such as
   `http://127.0.0.1:8080` also works; collateral is always verified.
   `--pccs-ca PEM` sets the CA for an HTTPS PCCS.
-* `--allow-tcb-status STATUS` (repeatable), `--mrsigner`,
+* `--strict-tcb` (only `UpToDate`; the default accepts every TCB status
+  except `Revoked`, with a warning), `--allow-tcb-status STATUS`
+  (repeatable: `UpToDate` plus these), `--mrsigner`,
   `--isv-prod-id`, `--min-isv-svn`, `--collateral-grace SECONDS`.
-* `--insecure-tls` (the executor's certificate is currently expired),
+* `--insecure-tls` (accept any TLS certificate; TLS is not trusted),
   `--tls-ca PEM`, and `--plaintext` (for a local `echo-host-app --listen`).
 * `-m TEXT` (repeatable), `-i/--interactive`, `--loglevel debug`.
 * `--build-output DIR` keeps the artefacts. `--build-arg K=V`,
@@ -50,7 +52,9 @@ Every failure prints `[FAIL] …` on stderr and exits non-zero.
 
 ## Status of the public executor
 
-`sgx-playground.blechschmidt.io:443` currently returns
-`[QCNL] Error: … Couldn't connect to server` after about 60 s instead of a
-quote, because its PCCS is unreachable (`docs/PROTOCOL.md` §5). The client
-reports this with exit code 3.
+`sgx-playground.blechschmidt.io:443` runs this echo enclave on real SGX
+hardware, and `echo-client` without arguments attests it and echoes a
+message. Its platform TCB status is `OutOfDateConfigurationNeeded`, which
+the default policy accepts with a warning (`--strict-tcb` rejects it). If
+the executor's PCCS is down, it sends `[QCNL] Error: …` instead of a
+quote, and the client exits with code 3.

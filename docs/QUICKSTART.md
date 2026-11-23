@@ -6,12 +6,13 @@ enclave reproducibly, attest the remote enclave at
 attested channel. Each step says what it proves. The background is in
 [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md).
 
-> **Status of the public executor (2026-11-24).** The executor runs the
-> Rust host and echo enclave on real SGX hardware, and the flow below
-> passes against it. Its platform's TCB status is
-> `OutOfDateConfigurationNeeded` (TCB date 2024-03-13), which the default
-> policy rejects; add `--allow-tcb-status OutOfDateConfigurationNeeded` to
-> accept it.
+> **The public executor** runs the Rust host and echo enclave on real SGX
+> hardware. It is a KVM guest whose platform TCB status is
+> `OutOfDateConfigurationNeeded` (TCB date 2024-03-13). `echo-client`
+> accepts every TCB status except `Revoked` by default and warns with the
+> Intel advisory IDs. `--strict-tcb` accepts only `UpToDate`, and
+> `--allow-tcb-status STATUS` (repeatable) accepts `UpToDate` plus the
+> listed statuses.
 
 ## Prerequisites
 
@@ -48,7 +49,7 @@ socket, no SGX/DCAP library, no capabilities and its own network
 namespace:
 
 ```sh
-scripts/verify-without-sgx.sh --allow-tcb OutOfDateConfigurationNeeded
+scripts/verify-without-sgx.sh
 ```
 
 It builds the enclave reproducibly if `target/nix-enclave/enclave/` is
@@ -72,8 +73,8 @@ over the attested channel. Output from 2026-11-24 (abridged):
 Reply received from server: Hello, SGX server!
 ```
 
-The same works without the script: `docker compose run --rm verify-rs
---allow-tcb-status OutOfDateConfigurationNeeded` (Intel PCS and verified
+The same works without the script: `docker compose run --rm verify-rs`
+(Intel PCS and verified
 TLS are its defaults), or the native binary from step 3 Option B.
 
 ## 1. Prepare a PCCS (optional for the client)
@@ -82,7 +83,8 @@ Who needs collateral, and why:
 
 * **The SGX host** needs a PCCS so that the quote provider can fetch the
   platform's PCK certificate. Without one, the host cannot produce a quote
-  at all. This is the failure the public executor has today.
+  at all (the public executor's PCCS runs on its host; when it was down,
+  clients got a DCAP error text instead of a quote, exit code 3).
 * **The client** needs TCB Info, QE Identity and CRLs to verify a quote. It
   fetches them from Intel's PCS (`https://api.trustedservices.intel.com`)
   by default, which needs no API key. A local PCCS is only a cache. Either
@@ -153,11 +155,11 @@ check (TLS is not part of the trust chain). Extra arguments are passed through, 
 
 ```sh
 cargo build --release -p echo-client
-target/release/echo-client --allow-tcb-status OutOfDateConfigurationNeeded
+target/release/echo-client
 ```
 
-(the TCB option is needed for the public executor's platform, see the
-status note above.)
+Run it from the repository root. From elsewhere it falls back to the
+source tree it was compiled from for the Dockerfile and build context.
 
 Without `--gendata-path`, the client itself builds
 `containers/Dockerfile.nix-build` (the Dockerfile of the reproducible Nix
@@ -216,9 +218,9 @@ private key. Only code with that MRENCLAVE could have produced the key
 | code | meaning | typical cause |
 |---|---|---|
 | 0 | verified, all echoes matched | — |
-| 1 | build, verification, policy, handshake or echo failure | MRENCLAVE mismatch (the executor runs a different enclave); TCB status not allowed (`--allow-tcb-status SWHardeningNeeded` if you accept it); stale collateral |
+| 1 | build, verification, policy, handshake or echo failure | MRENCLAVE mismatch (the executor runs a different enclave); TCB status not allowed (with `--strict-tcb` or a narrowed `--allow-tcb-status`); stale collateral |
 | 2 | invalid command line | — |
-| 3 | the remote sent a DCAP error text instead of a quote | the executor's PCCS is down (the current state of the public executor) |
+| 3 | the remote sent a DCAP error text instead of a quote | the executor's PCCS is down |
 
 ## 4. The whole flow as a test report
 

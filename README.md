@@ -16,13 +16,24 @@ inside it.
   ([README](enclave-sys/README.md)).
 * `extra/sequence.wsd`: the sequence diagram below (PlantUML).
 
-> **Status (2026-11-24).** The public executor at
-> `sgx-playground.blechschmidt.io:443` runs the Rust host and echo enclave
-> on real SGX hardware, and the full flow passes against it. Its platform
-> reports TCB status `OutOfDateConfigurationNeeded`, which the default
-> policy rejects: pass `--allow-tcb-status OutOfDateConfigurationNeeded`
-> if you accept that.
->
+## Try it
+
+With Rust and a container engine (Docker or Podman) installed:
+
+```sh
+cargo run --release -p echo-client
+```
+
+The client rebuilds the echo enclave bit for bit in the Nix container,
+attests the enclave behind `sgx-playground.blechschmidt.io:443` against
+that MRENCLAVE and exchanges a message over the attested channel. The
+public executor runs the Rust host and echo enclave on real SGX hardware.
+It is a KVM guest whose platform TCB status is
+`OutOfDateConfigurationNeeded`. The client accepts every status except
+`Revoked` by default and prints a warning naming the Intel advisories.
+Pass `--strict-tcb` to accept only `UpToDate` platforms.
+See [QUICKSTART.md](docs/QUICKSTART.md) for details.
+
 > **Verifying needs no SGX.** The client, quote verifier and channel are
 > pure Rust with the Intel SGX Root CA compiled in, and they fetch
 > collateral from Intel's PCS by default. Any Linux/macOS host with Docker
