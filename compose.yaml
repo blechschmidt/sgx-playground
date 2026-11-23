@@ -14,8 +14,8 @@
 #
 #   docker compose run --rm nix-build              # build, prints MRENCLAVE
 #   docker compose run --rm verify-rs              # public executor, Intel PCS
-#       (set SGX_RA_PCCS_URL=https://api.trustedservices.intel.com unless
-#        the local pccs service runs)
+#       (needs no SGX and no PCCS: runs on any Docker host; see
+#        scripts/verify-without-sgx.sh)
 #
 #   # On an SGX host: local PCCS + host + client
 #   API_KEY=... docker compose up -d pccs
@@ -114,11 +114,12 @@ services:
     environment:
       SGX_RA_HOST: ${SGX_RA_HOST:-sgx-playground.blechschmidt.io}
       SGX_RA_PORT: ${SGX_RA_PORT:-443}
-      SGX_RA_TRANSPORT: ${SGX_RA_TRANSPORT:---insecure-tls}
-      SGX_RA_PCCS_URL: ${SGX_RA_PCCS_URL:-https://127.0.0.1:8081}
-      # CA of the local PCCS (from prepare-pccs). Set to `none` for a PCCS
-      # with a public certificate, e.g. Intel's PCS.
-      SGX_RA_PCCS_CA: ${SGX_RA_PCCS_CA:-/shared/ca.crt}
+      SGX_RA_TRANSPORT: ${SGX_RA_TRANSPORT:-tls}
+      # Intel's PCS by default: verifying needs no SGX and no local PCCS.
+      # For the local pccs service: SGX_RA_PCCS_URL=https://127.0.0.1:8081
+      # SGX_RA_PCCS_CA=/shared/ca.crt (its CA, from prepare-pccs).
+      SGX_RA_PCCS_URL: ${SGX_RA_PCCS_URL:-https://api.trustedservices.intel.com}
+      SGX_RA_PCCS_CA: ${SGX_RA_PCCS_CA:-none}
 
 volumes:
   shared:

@@ -498,6 +498,11 @@ pieces: a recorded real quote with recorded collateral, SGX simulation,
 synthetic PKI. Re-run `scripts/e2e.sh --skip-build` when the remote recovers;
 its live checks report `BLOCKED` until then.
 
+*Resolved 2026-11-24.* The executor runs the Rust host and enclave on real
+SGX hardware; all `scripts/e2e.sh` stages pass against it, and
+`scripts/verify-without-sgx.sh` attests it from a container without any
+SGX device, service or library.
+
 ### TM-11: One-way authentication
 
 *Severity: informational, by design.* Like server-only TLS, the client

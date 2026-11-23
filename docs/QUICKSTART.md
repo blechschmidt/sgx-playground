@@ -6,18 +6,12 @@ enclave reproducibly, attest the remote enclave at
 attested channel. Each step says what it proves. The background is in
 [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md).
 
-> **Status of the public executor (2026-11-23).** The executor currently
-> sends a DCAP error text instead of a quote, because its own PCCS is
-> unreachable ([PROTOCOL.md §5](PROTOCOL.md#5-live-observations-2026-11-222026-11-23)).
-> The client reports this with exit code 3. In addition, the executor runs
-> the operator's enclave, today the blueprint's C++ echo enclave
-> ([PROTOCOL.md §1.1](PROTOCOL.md#11-which-enclave-does-the-executor-load)).
-> Even with a working PCCS, the client therefore rejects it with an
-> MRENCLAVE mismatch until the operator deploys the Rust enclave. That
-> rejection is the correct result. To see the positive path, run the
-> host yourself on an SGX machine ([step 5](#5-optional-run-the-host-on-your-own-sgx-machine)).
-> So far no run has been made on real SGX hardware
-> ([THREAT_MODEL.md TM-10](THREAT_MODEL.md#tm-10-no-end-to-end-run-on-sgx-hardware)).
+> **Status of the public executor (2026-11-24).** The executor runs the
+> Rust host and echo enclave on real SGX hardware, and the flow below
+> passes against it. Its platform's TCB status is
+> `OutOfDateConfigurationNeeded` (TCB date 2024-03-13), which the default
+> policy rejects; add `--allow-tcb-status OutOfDateConfigurationNeeded` to
+> accept it.
 
 ## Prerequisites
 
@@ -29,10 +23,58 @@ attested channel. Each step says what it proves. The background is in
 * For building the client outside Docker: Rust (`rust-toolchain.toml` pins
   1.100.0; `rustup` picks it up).
 * About 6 GB of free disk for the Nix build container.
-* An SGX machine only for step 5.
+* An SGX machine only for step 5. Verifying the remote enclave (steps
+  2–4) works on any host; see
+  [Verifying from a host without SGX](#verifying-from-a-host-without-sgx).
 
 Run every command from the repository root. It is the build context of
 the Nix container.
+
+## Verifying from a host without SGX
+
+Only the executor needs SGX. The verifying side needs none of it:
+
+| What | Where it comes from on the verifier |
+|---|---|
+| expected MRENCLAVE | the reproducible Nix build in Docker (step 2): no SGX device, `sgx_sign` runs inside the build container |
+| quote | sent by the executor over the (untrusted) TLS connection |
+| quote verification | `sgx-ra-verifier`, pure Rust (P-256, X.509, CRLs, TCB Info, QE Identity), Intel SGX Root CA compiled in. No `libsgx_dcap_quoteverify`, no QvE, no AESM |
+| collateral | Intel's PCS (`https://api.trustedservices.intel.com`, no API key) by default, also the default of `PccsConfig::default()`. No local PCCS |
+| channel | X25519/ChaCha20-Poly1305 in `sgx-ra-core`, no hardware dependency |
+
+`echo-client` links only libc and libgcc. To check this on the real
+thing, run the client in a container that has no SGX device, no AESM
+socket, no SGX/DCAP library, no capabilities and its own network
+namespace:
+
+```sh
+scripts/verify-without-sgx.sh --allow-tcb OutOfDateConfigurationNeeded
+```
+
+It builds the enclave reproducibly if `target/nix-enclave/enclave/` is
+missing, builds `containers/Dockerfile.verify-rs`, checks that environment,
+then attests `sgx-playground.blechschmidt.io:443` and exchanges a message
+over the attested channel. Output from 2026-11-24 (abridged):
+
+```
+[OK] no SGX device (/dev/sgx*, /dev/isgx)
+[OK] no AESM service (/var/run/aesmd)
+[OK] no SGX SDK / DCAP / quote provider library installed
+[OK] echo-client links only:  linux-vdso.so.1 libc.so.6 libgcc_s.so.1 /lib64/ld-linux-x86-64.so.2
+[OK] no capabilities (CapEff: 0000000000000000), own network namespace, read-only root
+[OK] Expected MRENCLAVE from /enclave/enclave.so.gendata: bdd7e786…
+[OK] Connected to sgx-playground.blechschmidt.io:443 via TLS (…, certificate verified against the Mozilla roots); …
+[OK] PCK certificate chain verified up to the pinned Intel SGX Root CA (…); … PCK certificate not revoked
+…
+[OK] Remote MRENCLAVE bdd7e786… is identical to the local build: the remote runs exactly the code we built
+[OK] Attested report_data binds the enclave's channel public key …
+[OK] Handshake complete: the enclave proved possession of the attested private key …
+Reply received from server: Hello, SGX server!
+```
+
+The same works without the script: `docker compose run --rm verify-rs
+--allow-tcb-status OutOfDateConfigurationNeeded` (Intel PCS and verified
+TLS are its defaults), or the native binary from step 3 Option B.
 
 ## 1. Prepare a PCCS (optional for the client)
 
@@ -92,18 +134,18 @@ Doing it once by hand shows the measurement you are about to pin.
 ### Option A: compose
 
 ```sh
-# With Intel's PCS (no local PCCS needed):
-SGX_RA_PCCS_URL=https://api.trustedservices.intel.com SGX_RA_PCCS_CA=none \
-  docker compose run --rm verify-rs
-
-# With the local PCCS from step 1 (the default):
+# With Intel's PCS (the default; no local PCCS needed):
 docker compose run --rm verify-rs
+
+# With the local PCCS from step 1:
+SGX_RA_PCCS_URL=https://127.0.0.1:8081 SGX_RA_PCCS_CA=/shared/ca.crt \
+  docker compose run --rm verify-rs
 ```
 
 `verify-rs` depends on `nix-build`. It reads the expected MRENCLAVE from
-the `enclave` volume and runs `echo-client` with
-`--insecure-tls` (the executor's certificate has expired, and TLS is not
-part of the trust chain). Extra arguments are passed through, e.g.
+the `enclave` volume and runs `echo-client`. TLS is checked against the
+Mozilla roots by default; `SGX_RA_TRANSPORT=--insecure-tls` skips that
+check (TLS is not part of the trust chain). Extra arguments are passed through, e.g.
 `docker compose run --rm verify-rs -m "hi" -i`. All variables are listed in
 `containers/verify-rs-entrypoint.sh`.
 
@@ -111,8 +153,11 @@ part of the trust chain). Extra arguments are passed through, e.g.
 
 ```sh
 cargo build --release -p echo-client
-target/release/echo-client --insecure-tls
+target/release/echo-client --allow-tcb-status OutOfDateConfigurationNeeded
 ```
+
+(the TCB option is needed for the public executor's platform, see the
+status note above.)
 
 Without `--gendata-path`, the client itself builds
 `containers/Dockerfile.nix-build` (the Dockerfile of the reproducible Nix
@@ -121,16 +166,16 @@ It cross-checks that value against `MRENCLAVE.txt`. Useful variants:
 
 ```sh
 # Reuse the artefacts of step 2 instead of building again:
-target/release/echo-client --insecure-tls \
+target/release/echo-client \
   --gendata-path target/nix-enclave/enclave/enclave.so.gendata
 
 # Use the local PCCS for collateral:
-target/release/echo-client --insecure-tls \
+target/release/echo-client \
   --pccs-url https://127.0.0.1:8081 \
   --pccs-ca sgx-playground/config/pccs/tls/ca.crt
 
 # Also pin the signer (MRSIGNER verification) and the product/SVN:
-target/release/echo-client --insecure-tls \
+target/release/echo-client \
   --mrsigner "$(cat target/nix-enclave/enclave/MRSIGNER.txt)" \
   --isv-prod-id 1 --min-isv-svn 1
 ```
@@ -159,8 +204,8 @@ All options are listed in [examples/echo-client/README.md](../examples/echo-clie
 [OK] Echo matches the request
 ```
 
-(abridged; this is the expected output, which has not yet been observed
-against real SGX hardware). The important line is the report_data one: the X25519 key of
+(abridged; observed against the public executor on real SGX hardware,
+2026-11-24). The important line is the report_data one: the X25519 key of
 the channel hashes to the value that Intel's QE signed together with
 MRENCLAVE, and the enclave proved during the handshake that it holds the
 private key. Only code with that MRENCLAVE could have produced the key

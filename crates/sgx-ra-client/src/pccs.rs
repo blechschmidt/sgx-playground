@@ -22,7 +22,8 @@ use std::time::Duration;
 use sgx_ra_verifier::collateral::{Collateral, CollateralRequest, CollateralSource, SourceError};
 use ureq::tls::{Certificate, PemItem, RootCerts, TlsConfig};
 
-/// The blueprint's PCCS address (a local PCCS / caching proxy).
+/// The blueprint's PCCS address (a local PCCS / caching proxy). Not the
+/// [`PccsConfig::default`]: a verifier without SGX usually has no PCCS.
 pub const DEFAULT_PCCS_URL: &str = "http://127.0.0.1:8080";
 /// Intel's Provisioning Certification Service.
 pub const INTEL_PCS_URL: &str = "https://api.trustedservices.intel.com";
@@ -78,9 +79,11 @@ impl fmt::Debug for PccsConfig {
     }
 }
 
+/// Intel PCS: needs no API key, no SGX and no local service, so a
+/// verifier works on any host with Internet access.
 impl Default for PccsConfig {
     fn default() -> Self {
-        Self::pccs(DEFAULT_PCCS_URL)
+        Self::intel_pcs()
     }
 }
 
@@ -325,6 +328,7 @@ mod tests {
 
     #[test]
     fn config_validation() {
+        assert_eq!(PccsConfig::default(), PccsConfig::intel_pcs());
         assert!(PccsClient::new(PccsConfig::default()).is_ok());
         assert!(PccsClient::new(PccsConfig::intel_pcs()).is_ok());
         for bad in [

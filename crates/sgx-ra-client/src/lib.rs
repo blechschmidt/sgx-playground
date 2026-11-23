@@ -11,9 +11,10 @@
 //! steps 2–4 in one call.
 //!
 //! Quote verification is [`DcapVerifier`] (crate `sgx-ra-verifier`) with
-//! collateral from a [`PccsClient`]: a PCCS (default
-//! [`DEFAULT_PCCS_URL`], HTTP or HTTPS with a custom CA) or Intel PCS
-//! directly. See [`dcap_verifier`].
+//! collateral from a [`PccsClient`]: Intel PCS directly (the default) or a
+//! PCCS (e.g. [`DEFAULT_PCCS_URL`], HTTP or HTTPS with a custom CA). See
+//! [`dcap_verifier`]. Verification is pure Rust and needs no SGX hardware,
+//! SGX SDK, AESM or PCCS on the verifying host.
 //!
 //! Enclaves with a sealed long-term identity (`docs/SEALING.md`) can be
 //! pinned across restarts with [`identity_pin`].

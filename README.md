@@ -16,19 +16,26 @@ inside it.
   ([README](enclave-sys/README.md)).
 * `extra/sequence.wsd`: the sequence diagram below (PlantUML).
 
-> **Status (2026-11-23).** The public executor at
-> `sgx-playground.blechschmidt.io:443` currently sends a DCAP error instead
-> of a quote, because its PCCS is unreachable. It also still runs the
-> blueprint's C++ enclave. The Rust client therefore stops with exit code 3
-> today. Everything that runs without SGX hardware is tested, including
-> simulation runs of the real enclave and host, but no run on SGX hardware
-> has been made yet ([THREAT_MODEL.md TM-10](docs/THREAT_MODEL.md#tm-10-no-end-to-end-run-on-sgx-hardware)).
+> **Status (2026-11-24).** The public executor at
+> `sgx-playground.blechschmidt.io:443` runs the Rust host and echo enclave
+> on real SGX hardware, and the full flow passes against it. Its platform
+> reports TCB status `OutOfDateConfigurationNeeded`, which the default
+> policy rejects: pass `--allow-tcb-status OutOfDateConfigurationNeeded`
+> if you accept that.
+>
+> **Verifying needs no SGX.** The client, quote verifier and channel are
+> pure Rust with the Intel SGX Root CA compiled in, and they fetch
+> collateral from Intel's PCS by default. Any Linux/macOS host with Docker
+> (for the reproducible build) and Internet access can attest the enclave.
+> `scripts/verify-without-sgx.sh` proves this in a container without SGX
+> devices, AESM, SGX libraries or a PCCS
+> ([QUICKSTART.md](docs/QUICKSTART.md#verifying-from-a-host-without-sgx)).
 
 ## Documentation
 
 | Document | Read it to |
 |---|---|
-| [QUICKSTART.md](docs/QUICKSTART.md) | prepare a PCCS, run the reproducible Nix build and run the Rust client against `sgx-playground.blechschmidt.io` |
+| [QUICKSTART.md](docs/QUICKSTART.md) | run the reproducible Nix build and the Rust client against `sgx-playground.blechschmidt.io`, from any host (no SGX needed) |
 | [NEW_ENCLAVE_APP.md](docs/NEW_ENCLAVE_APP.md) | write your own enclave on the framework: implement `EnclaveApp`, define a `Policy`, reuse the host, `Attester` / `Verifier` / `SecureChannel` |
 | [REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) | reproduce MRENCLAVE bit for bit on another host, and debug a mismatch |
 | [PROTOCOL.md](docs/PROTOCOL.md) | the wire protocol spec: the executor framing, quote layout, key binding (§6.2), handshake (§6.4), records |
