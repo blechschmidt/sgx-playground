@@ -77,14 +77,16 @@ The same works without the script: `docker compose run --rm verify-rs`
 (Intel PCS and verified
 TLS are its defaults), or the native binary from step 3 Option B.
 
-## 1. Prepare a PCCS (optional for the client)
+## 1. Optional: a PCCS (not needed by anyone; it needs an API key)
 
-Who needs collateral, and why:
+Who needs what from Intel, and why no API key is needed
+([NO_API_KEY.md](NO_API_KEY.md)):
 
-* **The SGX host** needs a PCCS so that the quote provider can fetch the
-  platform's PCK certificate. Without one, the host cannot produce a quote
-  at all (the public executor's PCCS runs on its host; when it was down,
-  clients got a DCAP error text instead of a quote, exit code 3).
+* **The SGX host** needs the platform's PCK certificate so that the quote
+  provider can produce a quote. The host image fetches it straight from
+  Intel's PCS v4 (`config/sgx_default_qcnl.conf`), which serves it
+  without an API key. If that fetch fails, the host cannot produce a quote
+  and clients get a DCAP error text instead (exit code 3).
 * **The client** needs TCB Info, QE Identity and CRLs to verify a quote. It
   fetches them from Intel's PCS (`https://api.trustedservices.intel.com`)
   by default, which needs no API key. A local PCCS is only a cache. Either
@@ -92,7 +94,10 @@ Who needs collateral, and why:
   the client, so the PCCS is not trusted
   ([THREAT_MODEL.md §4.8](THREAT_MODEL.md#48-pccs-trust-http-vs-https-intel-root-pinning--ok-residue-accepted)).
 
-To run the blueprint's PCCS locally, get an API key from the
+The blueprint's PCCS is a cache in front of Intel's PCS for many hosts.
+Its stock code always sends an API key header, and PCS rejects an empty or
+wrong one (HTTP 401), so it is the one component that still needs a key.
+To run it locally, get an API key from the
 [Intel PCS portal](https://api.portal.trustedservices.intel.com/provisioning-certification),
 then:
 
@@ -220,7 +225,7 @@ private key. Only code with that MRENCLAVE could have produced the key
 | 0 | verified, all echoes matched | — |
 | 1 | build, verification, policy, handshake or echo failure | MRENCLAVE mismatch (the executor runs a different enclave); TCB status not allowed (with `--strict-tcb` or a narrowed `--allow-tcb-status`); stale collateral |
 | 2 | invalid command line | — |
-| 3 | the remote sent a DCAP error text instead of a quote | the executor's PCCS is down |
+| 3 | the remote sent a DCAP error text instead of a quote | the executor could not fetch its PCK certificate (Intel PCS or its PCCS unreachable) |
 
 ## 4. The whole flow as a test report
 
@@ -236,8 +241,8 @@ the executor sent no quote, so nothing was verified.
 
 ## 5. Optional: run the host on your own SGX machine
 
-On a machine with `/dev/sgx_enclave` and `/dev/sgx_provision`, with the
-PCCS from step 1 running:
+On a machine with `/dev/sgx_enclave` and `/dev/sgx_provision` (no PCCS,
+no API key, no AESM needed):
 
 ```sh
 scripts/nix-build-host-image.sh                          # sgx-ra-echo-host:latest (Nix, reproducible)
@@ -246,7 +251,9 @@ SGX_RA_HOST=127.0.0.1 SGX_RA_PORT=7000 SGX_RA_TRANSPORT=--plaintext \
   docker compose run --rm verify-rs
 ```
 
-`config/sgx_default_qcnl.conf` points the host's quote provider at
-`https://localhost:8081`. To expose the host the way the public executor
+`config/sgx_default_qcnl.conf` (also built into the image) points the
+host's quote provider at Intel's PCS v4. To use the PCCS from step 1
+instead, set `SGX_RA_QCNL_CONF=./config/sgx_default_qcnl.local-pccs.conf`
+(`https://localhost:8081`). To expose the host the way the public executor
 does, put stunnel in front of it and use
 [`containers/wrapper.sh`](../containers/wrapper.sh) as its `exec`.

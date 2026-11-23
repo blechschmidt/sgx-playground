@@ -14,8 +14,11 @@
 # The container gets
 #   * /dev/sgx_enclave   to load our enclave and Intel's QE3/ID enclave,
 #   * /dev/sgx_provision for the PCE (it has the PROVISION_KEY attribute),
-#   * the host's QCNL config, so the quote provider finds the PCCS,
-#   * host networking, because that PCCS usually listens on localhost:8081.
+#   * a QCNL config, if $SGX_RA_QCNL_CONF names one. Without it the image's
+#     built-in config fetches the PCK certificate from Intel's PCS v4, which
+#     needs no API key and no PCCS (docs/NO_API_KEY.md). Point it at e.g.
+#     config/sgx_default_qcnl.local-pccs.conf to use a PCCS instead,
+#   * host networking, so such a PCCS on localhost:8081 is reachable.
 # Nothing else: no privileged mode, no volumes with secrets. The host app
 # is untrusted and never sees a key.
 #
@@ -32,7 +35,7 @@
 set -eu
 
 IMAGE="${SGX_RA_HOST_IMAGE:-sgx-ra-echo-host:latest}"
-QCNL_CONF="${SGX_RA_QCNL_CONF:-/etc/sgx_default_qcnl.conf}"
+QCNL_CONF="${SGX_RA_QCNL_CONF:-}"
 LOG="${SGX_RA_HOST_LOG:-/var/log/sgx-ra-host.log}"
 
 # Keep diagnostics off the wire; fall back to discarding them if the log
@@ -43,11 +46,16 @@ else
     exec 2>/dev/null
 fi
 
+if [ -n "$QCNL_CONF" ]; then
+    set -- -v "$QCNL_CONF:/etc/sgx_default_qcnl.conf:ro" "$IMAGE" "$@"
+else
+    set -- "$IMAGE" "$@"
+fi
+
 exec docker run --rm -i \
     --network host \
     --device /dev/sgx_enclave \
     --device /dev/sgx_provision \
     --read-only --tmpfs /tmp \
     --cap-drop ALL --security-opt no-new-privileges \
-    -v "$QCNL_CONF:/etc/sgx_default_qcnl.conf:ro" \
-    "$IMAGE" "$@"
+    "$@"

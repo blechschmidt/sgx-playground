@@ -17,8 +17,10 @@
 #       (needs no SGX and no PCCS: runs on any Docker host; see
 #        scripts/verify-without-sgx.sh)
 #
-#   # On an SGX host: local PCCS + host + client
-#   API_KEY=... docker compose up -d pccs
+#   # On an SGX host: host + client. The host's quote provider fetches its
+#   # PCK certificate from Intel's PCS v4: no PCCS, no API key
+#   # (docs/NO_API_KEY.md). The blueprint's pccs service is optional; it
+#   # needs an API key and SGX_RA_QCNL_CONF=./config/sgx_default_qcnl.local-pccs.conf.
 #   scripts/nix-build-host-image.sh
 #   docker compose --profile local-sgx up -d host-app
 #   SGX_RA_HOST=127.0.0.1 SGX_RA_PORT=7000 SGX_RA_TRANSPORT=--plaintext \
@@ -86,7 +88,8 @@ services:
       - /dev/sgx_enclave:/dev/sgx_enclave   # our enclave, QE3, ID enclave
       - /dev/sgx_provision:/dev/sgx_provision  # the PCE
     volumes:
-      # QCNL: where the quote provider finds the PCCS (the pccs service).
+      # QCNL: where the quote provider gets the PCK certificate. Default:
+      # Intel's PCS v4, keyless; see the header for the local pccs service.
       - ${SGX_RA_QCNL_CONF:-./config/sgx_default_qcnl.conf}:/etc/sgx_default_qcnl.conf:ro
     read_only: true
     tmpfs: [/tmp]

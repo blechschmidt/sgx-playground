@@ -7,8 +7,9 @@
 //! Like `App.cpp`, the quoter runs in **in-process** mode: QE3, PCE and the
 //! ID enclave are loaded into this process from Intel's signed images,
 //! which needs `/dev/sgx_enclave` and `/dev/sgx_provision`, and the quote
-//! provider library (QPL) fetches the PCK certificate data from the PCCS
-//! configured in `/etc/sgx_default_qcnl.conf`. If `SGX_AESM_ADDR` is set,
+//! provider library (QPL) fetches the PCK certificate data from the service
+//! configured in `/etc/sgx_default_qcnl.conf`: Intel's PCS v4 in our host
+//! image (no API key needed, docs/NO_API_KEY.md) or a PCCS. If `SGX_AESM_ADDR` is set,
 //! the library uses out-of-process mode (AESM) instead and none of the
 //! paths are set, also as in `App.cpp`.
 

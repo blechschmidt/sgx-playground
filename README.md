@@ -42,11 +42,17 @@ See [QUICKSTART.md](docs/QUICKSTART.md) for details.
 > devices, AESM, SGX libraries or a PCCS
 > ([QUICKSTART.md](docs/QUICKSTART.md#verifying-from-a-host-without-sgx)).
 
+> **No Intel API key anywhere.** Verifiers fetch collateral and SGX hosts
+> fetch their PCK certificate from Intel's PCS v4, which serves both without
+> a subscription key. Only the blueprint's optional PCCS cache still wants
+> one. [NO_API_KEY.md](docs/NO_API_KEY.md) has the endpoint-by-endpoint findings.
+
 ## Documentation
 
 | Document | Read it to |
 |---|---|
 | [QUICKSTART.md](docs/QUICKSTART.md) | run the reproducible Nix build and the Rust client against `sgx-playground.blechschmidt.io`, from any host (no SGX needed) |
+| [NO_API_KEY.md](docs/NO_API_KEY.md) | see which Intel endpoints need an API key (only the PCCS's) and how quoting and verifying avoid it |
 | [NEW_ENCLAVE_APP.md](docs/NEW_ENCLAVE_APP.md) | write your own enclave on the framework: implement `EnclaveApp`, define a `Policy`, reuse the host, `Attester` / `Verifier` / `SecureChannel` |
 | [REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) | reproduce MRENCLAVE bit for bit on another host, and debug a mismatch |
 | [PROTOCOL.md](docs/PROTOCOL.md) | the wire protocol spec: the executor framing, quote layout, key binding (§6.2), handshake (§6.4), records |
@@ -153,16 +159,20 @@ The image `sgx-ra-echo-host:latest` has `/app/enclave.signed.so` (working
 directory) and Intel's runtime 2.26 / DCAP 1.23. The runtime comes from the
 Ubuntu 24.04 packages that the blueprint installs, pinned by sha256
 (`nix/sgx-runtime.nix`). The signed QE3/PCE/IDE images are Intel's
-unmodified bits. Run it with the SGX device nodes and your QCNL config:
+unmodified bits. Run it with the SGX device nodes:
 
 ```sh
 docker run --rm -i \
   --device /dev/sgx_enclave \      # our enclave, QE3, ID enclave
   --device /dev/sgx_provision \    # the PCE (PROVISION_KEY attribute)
-  -v /etc/sgx_default_qcnl.conf:/etc/sgx_default_qcnl.conf:ro \   # PCCS URL
-  --network host \                 # if the PCCS listens on localhost
   sgx-ra-echo-host:latest
 ```
+
+The image's QCNL config fetches the PCK certificate straight from Intel's
+PCS v4, which needs **no Intel API key and no PCCS**
+([docs/NO_API_KEY.md](docs/NO_API_KEY.md)). To use a PCCS instead, add
+`-v config/sgx_default_qcnl.local-pccs.conf:/etc/sgx_default_qcnl.conf:ro
+--network host`.
 
 For the remote executor, point stunnel's `exec` at
 [`containers/wrapper.sh`](containers/wrapper.sh), which runs exactly that
@@ -189,10 +199,11 @@ happens. A mismatch with your own build means the input trees differ.
 ## Compose, end-to-end tests and CI
 
 `compose.yaml` keeps the blueprint's `prepare-pccs` and `pccs` services
-and adds `nix-build` (the reproducible build, output in the `enclave`
+(optional now: they need an API key, nothing else does) and adds
+`nix-build` (the reproducible build, output in the `enclave`
 volume), `host-app` (the Nix-built host image with the SGX devices,
 profile `local-sgx`) and `verify-rs` (the Rust client, host networking so
-it reaches the local PCCS). See the comments at the top of the file.
+it reaches a local host app or PCCS). See the comments at the top of the file.
 
 ```sh
 docker compose run --rm nix-build                     # prints MRENCLAVE
@@ -209,7 +220,7 @@ through a man-in-the-middle proxy (`examples/echo-client/tests/e2e.rs`).
 BLOCKED means the executor sent a DCAP error text instead of a quote, so
 nothing was verified. For a local SGX host:
 `docker compose --profile local-sgx up -d host-app`, then
-`scripts/e2e.sh --target 127.0.0.1:7000 --transport plaintext --pccs-url https://127.0.0.1:8081 --pccs-ca sgx-playground/config/pccs/tls/ca.crt`.
+`scripts/e2e.sh --target 127.0.0.1:7000 --transport plaintext`.
 
 `.github/workflows/ci.yml` runs everything that needs no SGX hardware: tests,
 rustfmt, clippy, `cargo deny` (`deny.toml`), `cargo audit`

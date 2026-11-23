@@ -2,7 +2,10 @@
 #
 #   /app/enclave.signed.so          the enclave (from mkEnclave), WorkingDir
 #   /app/MRENCLAVE.txt              its measurement, for operators
-#   /etc/sgx_default_qcnl.conf      QCNL config (PCCS URL); mount your own
+#   /etc/sgx_default_qcnl.conf      QCNL config: Intel's PCS v4 directly, so
+#                                   quoting needs no PCCS and no Intel API
+#                                   key (docs/NO_API_KEY.md); mount your own
+#                                   to use a PCCS instead
 #   Entrypoint                      the host app: one session on stdin/stdout
 #
 # Run it with the SGX device nodes (QE3 and our enclave need
@@ -10,8 +13,7 @@
 #
 #   docker run --rm -i \
 #     --device /dev/sgx_enclave --device /dev/sgx_provision \
-#     -v /etc/sgx_default_qcnl.conf:/etc/sgx_default_qcnl.conf:ro \
-#     --network host  sgx-ra-echo-host:latest
+#     sgx-ra-echo-host:latest
 #
 # The image is a pure function of its inputs (layer timestamps are the
 # epoch), so it is reproducible like everything else in the flake.
@@ -27,10 +29,23 @@
 
 let
   exe = "${hostApp}/bin/${hostApp.meta.mainProgram}";
+  # Intel's default QCNL config (in sgxRuntime) points at a PCCS on
+  # localhost:8081, whose stock code always sends an API key header. PCS v4
+  # serves PCK certificates without one, so the image talks to it directly.
+  # Same content as config/sgx_default_qcnl.conf.
+  qcnlConf = builtins.toFile "sgx_default_qcnl.conf" (builtins.toJSON {
+    pccs_url = "https://api.trustedservices.intel.com/sgx/certification/v4/";
+    use_secure_cert = true;
+    retry_times = 6;
+    retry_delay = 10;
+    pck_cache_expire_hours = 168;
+    verify_collateral_cache_expire_hours = 168;
+    local_cache_only = false;
+  });
   root = runCommand "${name}-root" { } ''
     mkdir -p $out/app $out/etc
     cp ${enclave}/enclave.signed.so ${enclave}/MRENCLAVE.txt $out/app/
-    cp ${sgxRuntime}/etc/sgx_default_qcnl.conf $out/etc/
+    cp ${qcnlConf} $out/etc/sgx_default_qcnl.conf
   '';
 in
 dockerTools.buildLayeredImage {
@@ -46,8 +61,8 @@ dockerTools.buildLayeredImage {
     Env = [
       "HOME=/tmp"
       "SGX_RA_SGX_LIB_DIR=${sgxRuntime}/lib"
-      # libcurl (QCNL -> PCCS) verifies the PCCS certificate when
-      # use_secure_cert is true.
+      # libcurl (QCNL -> Intel PCS or a PCCS) verifies the server
+      # certificate when use_secure_cert is true.
       "SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt"
       "CURL_CA_BUNDLE=${cacert}/etc/ssl/certs/ca-bundle.crt"
     ];
