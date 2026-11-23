@@ -1,6 +1,7 @@
 # Everything that runs without SGX hardware. The hardware/remote half of
-# the end-to-end tests (live_* in examples/echo-client/tests/e2e.rs) needs
-# an executor that returns a quote: run scripts/e2e.sh there.
+# the end-to-end tests (live_* in examples/echo-client/tests/e2e.rs) runs
+# against the public executor in live-integration.yml, or against any
+# executor that returns a quote with scripts/e2e.sh.
 name: ci
 
 on:
@@ -71,10 +72,16 @@ jobs:
         run: |
           set -eu
           for build in a b; do
-            DOCKER_BUILDKIT=0 docker build --no-cache \
-              -f containers/Dockerfile.nix-build \
-              --build-arg SRC_DIR=/build-$build/src \
-              -t sgx-ra-repro:$build .
+            # Retried: fetches from download.01.org occasionally fail to
+            # resolve on the runners. A failed attempt leaves no output.
+            for attempt in 1 2 3; do
+              DOCKER_BUILDKIT=0 docker build --no-cache \
+                -f containers/Dockerfile.nix-build \
+                --build-arg SRC_DIR=/build-$build/src \
+                -t sgx-ra-repro:$build . && break
+              test "$attempt" -lt 3
+              sleep 60
+            done
             cid=$(docker create sgx-ra-repro:$build /nonexistent)
             docker cp "$cid:/out" "out-$build"
             docker rm "$cid"

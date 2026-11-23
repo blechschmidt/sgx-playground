@@ -10,8 +10,9 @@ FROM docker.io/library/ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4ff
     RUN mkdir -p /etc/apt/keyrings && \
         curl https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key | tee /etc/apt/keyrings/intel-sgx-keyring.asc
 
+    # Versioned path: latest/linux-latest moved on to 2.30 and 404s for 2.26.
     RUN curl -fsSLo sgx_linux_x64_sdk.bin \
-        https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu24.04-server/sgx_linux_x64_sdk_2.26.100.0.bin
+        https://download.01.org/intel-sgx/sgx-linux/2.26/distro/ubuntu24.04-server/sgx_linux_x64_sdk_2.26.100.0.bin
 
     RUN chmod +x sgx_linux_x64_sdk.bin
 

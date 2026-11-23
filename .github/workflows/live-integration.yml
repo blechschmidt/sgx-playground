@@ -1,0 +1,85 @@
+# Integration test against the public executor at
+# sgx-playground.blechschmidt.io:443 (real SGX hardware). It runs the
+# client the way a user would: rebuild the enclave in the reproducible
+# Nix container, verify the executor's DCAP quote against Intel PCS (no
+# API key), check that the attested report_data binds the channel key and
+# exchange messages through the encrypted channel. Then the live_* tests
+# put a man-in-the-middle in front of the executor and check that
+# tampering is detected.
+#
+# The deployed enclave must be the one this commit builds: a change that
+# moves MRENCLAVE (anything in the enclave or sgx-ra-core) fails here until
+# the executor is redeployed (scripts/nix-build-host-image.sh on the host).
+name: live integration
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  SGX_RA_E2E_HOST: sgx-playground.blechschmidt.io
+  SGX_RA_E2E_PORT: "443"
+
+jobs:
+  live:
+    name: attest sgx-playground.blechschmidt.io and echo over the trusted channel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space (each Nix build needs several GB)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: Swatinem/rust-cache@v2
+      - name: Build echo-client
+        run: cargo build --locked -p echo-client
+      - name: Rebuild the enclave, attest the executor, echo through the channel
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/echo-client.log"
+          # Defaults: Dockerfile containers/Dockerfile.nix-build, verified
+          # TLS, Intel PCS collateral, the Ice Lake SP TCB/advisory policy.
+          target/debug/echo-client --build-output "$RUNNER_TEMP/enclave" \
+            -m "Hello, SGX server!" \
+            -m "Hello from GitHub Actions run $GITHUB_RUN_ID ($GITHUB_SHA)" \
+            2>&1 | tee "$log"
+          for line in \
+            "[OK] Quote signature over header and enclave report verified" \
+            "is identical to the local build" \
+            "[OK] Attested report_data binds the enclave's channel public key" \
+            "[OK] Handshake complete" \
+            "Reply received from server: Hello from GitHub Actions run $GITHUB_RUN_ID"; do
+            grep -qF "$line" "$log" || { echo "::error::missing in client output: $line"; exit 1; }
+          done
+          test "$(grep -cF '[OK] Echo matches the request' "$log")" -eq 2
+          {
+            echo '### Live attestation of `sgx-playground.blechschmidt.io:443`'
+            echo
+            echo "MRENCLAVE (local build): \`$(cat "$RUNNER_TEMP/enclave/out/MRENCLAVE.txt")\`"
+            echo
+            echo '```'
+            grep -E '^\[(OK|WARN|FAIL)\]|TCB|Reply received' "$log" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Man-in-the-middle tests (substituted key, tampered records, modified source)
+        env:
+          SGX_RA_E2E_TRANSPORT: tls
+        run: |
+          SGX_RA_E2E_GENDATA="$RUNNER_TEMP/enclave/out/enclave.so.gendata" \
+            cargo test --locked -p echo-client --test e2e -- \
+            --ignored --test-threads 1 live_
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-integration
+          path: |
+            ${{ runner.temp }}/echo-client.log
+            ${{ runner.temp }}/enclave/
+          if-no-files-found: ignore

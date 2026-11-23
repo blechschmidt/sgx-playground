@@ -234,3 +234,9 @@ rustfmt, clippy, `cargo deny` (`deny.toml`), `cargo audit`
 (`.cargo/audit.toml`), two clean Nix builds whose `enclave.signed.so` and
 `enclave.so.gendata` sha256 must match (and MRENCLAVE must equal the table
 above), the offline and simulation E2E tests, and the compose files.
+`.github/workflows/live-integration.yml` runs on every push against the public
+executor: `echo-client` with its defaults rebuilds the enclave, attests
+`sgx-playground.blechschmidt.io:443` and echoes through the channel, then the
+`live_*` man-in-the-middle tests run. It fails whenever the deployed enclave
+is not the one the pushed commit builds, so redeploy the host image
+(`scripts/nix-build-host-image.sh`) together with any change to MRENCLAVE.
