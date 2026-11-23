@@ -20,12 +20,28 @@
 # is untrusted and never sees a key.
 #
 # `-i` keeps stdin open; no `-t` (a TTY would mangle the binary stream).
-# Everything the container logs goes to stderr, i.e. stunnel's log, never
-# to the client.
+#
+# The host app keeps the wire on stdout and all diagnostics on stderr
+# (crates/sgx-ra-host/src/stdio.rs). stunnel's `exec`, however, connects the
+# child's stdin, stdout AND stderr to the same TLS socket, so anything on
+# stderr would be injected into the wire ahead of the quote and corrupt the
+# protocol. We therefore divert the container's stderr to a log file
+# ($SGX_RA_HOST_LOG, default /var/log/sgx-ra-host.log) instead of letting it
+# reach the client. This is the Rust equivalent of the blueprint wrapper's
+# `./app 2>/dev/null`.
 set -eu
 
 IMAGE="${SGX_RA_HOST_IMAGE:-sgx-ra-echo-host:latest}"
 QCNL_CONF="${SGX_RA_QCNL_CONF:-/etc/sgx_default_qcnl.conf}"
+LOG="${SGX_RA_HOST_LOG:-/var/log/sgx-ra-host.log}"
+
+# Keep diagnostics off the wire; fall back to discarding them if the log
+# path is not writable (never send them to the inherited socket on fd 2).
+if { : >>"$LOG"; } 2>/dev/null; then
+    exec 2>>"$LOG"
+else
+    exec 2>/dev/null
+fi
 
 exec docker run --rm -i \
     --network host \
