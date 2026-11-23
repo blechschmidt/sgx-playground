@@ -31,6 +31,9 @@ public executor runs the Rust host and echo enclave on real SGX hardware.
 It is a KVM guest whose platform TCB status is
 `OutOfDateConfigurationNeeded`. The client accepts every status except
 `Revoked` by default and prints a warning naming the Intel advisories.
+It also lists the TCB components that fall short and who can fix them.
+That status is set by the physical host's BIOS and microcode, which the VM
+can't change ([TCB_STATUS.md](docs/TCB_STATUS.md)).
 Pass `--strict-tcb` to accept only `UpToDate` platforms.
 See [QUICKSTART.md](docs/QUICKSTART.md) for details.
 
@@ -56,6 +59,7 @@ See [QUICKSTART.md](docs/QUICKSTART.md) for details.
 | [NEW_ENCLAVE_APP.md](docs/NEW_ENCLAVE_APP.md) | write your own enclave on the framework: implement `EnclaveApp`, define a `Policy`, reuse the host, `Attester` / `Verifier` / `SecureChannel` |
 | [REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) | reproduce MRENCLAVE bit for bit on another host, and debug a mismatch |
 | [PROTOCOL.md](docs/PROTOCOL.md) | the wire protocol spec: the executor framing, quote layout, key binding (§6.2), handshake (§6.4), records |
+| [TCB_STATUS.md](docs/TCB_STATUS.md) | find out why the executor is `OutOfDateConfigurationNeeded`, which SVNs fall short and who can fix them |
 | [THREAT_MODEL.md](docs/THREAT_MODEL.md) | the trust assumptions, the security review and the open issues |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | the crate layout, trait boundaries, reproducible build design |
 | [SEALING.md](docs/SEALING.md) | sealing, storage OCALLs and the optional long-term enclave identity |

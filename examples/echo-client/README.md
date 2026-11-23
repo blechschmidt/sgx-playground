@@ -55,6 +55,8 @@ Every failure prints `[FAIL] …` on stderr and exits non-zero.
 `sgx-playground.blechschmidt.io:443` runs this echo enclave on real SGX
 hardware, and `echo-client` without arguments attests it and echoes a
 message. Its platform TCB status is `OutOfDateConfigurationNeeded`, which
-the default policy accepts with a warning (`--strict-tcb` rejects it). If
+the default policy accepts with a warning (`--strict-tcb` rejects it). The
+client also prints which TCB components fall short; see
+[TCB_STATUS.md](../../docs/TCB_STATUS.md). If
 the executor's PCCS is down, it sends `[QCNL] Error: …` instead of a
 quote, and the client exits with code 3.

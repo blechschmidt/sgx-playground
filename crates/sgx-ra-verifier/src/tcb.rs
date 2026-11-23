@@ -54,6 +54,69 @@ pub struct TcbInfo {
     pub tcb_evaluation_data_number: u32,
     /// TCB levels, in document order (highest first).
     pub levels: Vec<TcbLevel>,
+    /// Intel's labels for the 16 SGX TCB components (`category` and
+    /// `type`, e.g. "BIOS, Early Microcode Update"), taken from the highest
+    /// level; empty where Intel gives none.
+    pub component_labels: [String; 16],
+}
+
+/// What the platform's TCB lacks compared to the best level of a TCB Info
+/// document; see [`TcbInfo::gap_to_best`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TcbGap {
+    /// The highest level Intel defines for this FMSPC: the best status any
+    /// platform of this kind can reach. It need not be `UpToDate`.
+    pub best: TcbLevel,
+    /// The SVNs below that level's minimum, in component order.
+    pub shortfalls: Vec<TcbShortfall>,
+}
+
+/// One TCB component (or the PCE SVN) below the value a TCB level requires.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TcbShortfall {
+    /// SGX TCB component index (0–15), or `None` for the PCE SVN.
+    pub component: Option<usize>,
+    /// Intel's label for the component; empty if Intel gives none.
+    pub label: String,
+    /// The platform's SVN.
+    pub have: u16,
+    /// The SVN the level requires.
+    pub need: u16,
+}
+
+impl TcbShortfall {
+    /// Who can raise this SVN. It is always the platform owner (BIOS and
+    /// microcode, or the host OS / VMM for late microcode), never the
+    /// enclave, its host app or a guest VM. Components without an Intel
+    /// label are platform configuration reflected in CPUSVN (for example
+    /// x2APIC locking or disabled SGX error injection on 3rd-gen Xeon SP),
+    /// which only the BIOS setup changes.
+    pub fn remedy(&self) -> &'static str {
+        if self.component.is_none() {
+            return "update the platform software (PCE)";
+        }
+        let label = self.label.as_str();
+        if label.starts_with("BIOS") {
+            "update the BIOS / microcode of the physical host"
+        } else if label.starts_with("OS/VMM") {
+            "load newer microcode in the host OS / VMM, or update the BIOS"
+        } else {
+            "update or reconfigure the BIOS of the physical host"
+        }
+    }
+}
+
+impl std::fmt::Display for TcbShortfall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.component {
+            Some(i) => write!(f, "component {i}")?,
+            None => f.write_str("PCE SVN")?,
+        }
+        if !self.label.is_empty() {
+            write!(f, " ({})", self.label)?;
+        }
+        write!(f, " is {} < {}", self.have, self.need)
+    }
 }
 
 /// One TCB level of the QE Identity.
@@ -143,6 +206,21 @@ struct TcbJson {
 #[derive(Deserialize)]
 struct TcbComponentJson {
     svn: u8,
+    #[serde(default)]
+    category: String,
+    #[serde(default, rename = "type")]
+    kind: String,
+}
+
+impl TcbComponentJson {
+    fn label(&self) -> String {
+        match (self.category.is_empty(), self.kind.is_empty()) {
+            (false, false) => format!("{}, {}", self.category, self.kind),
+            (false, true) => self.category.clone(),
+            (true, false) => self.kind.clone(),
+            (true, true) => String::new(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -270,6 +348,14 @@ impl TcbInfo {
         if body.tcb_levels.is_empty() || body.tcb_levels.len() > MAX_TCB_LEVELS {
             return Err(collateral_err(WHAT, "invalid number of TCB levels"));
         }
+        let component_labels: [String; 16] = core::array::from_fn(|i| {
+            body.tcb_levels[0]
+                .tcb
+                .sgxtcbcomponents
+                .get(i)
+                .map(TcbComponentJson::label)
+                .unwrap_or_default()
+        });
         let levels = body
             .tcb_levels
             .into_iter()
@@ -294,6 +380,7 @@ impl TcbInfo {
             next_update: timestamp(&body.next_update, WHAT)?,
             tcb_evaluation_data_number: body.tcb_evaluation_data_number,
             levels,
+            component_labels,
         })
     }
 
@@ -306,6 +393,38 @@ impl TcbInfo {
                     .iter()
                     .zip(&l.comp_svn)
                     .all(|(have, min)| have >= min)
+        })
+    }
+
+    /// Compares the platform's TCB with the highest level of the document
+    /// and lists every SVN below it. This explains a status worse than the
+    /// best one: which components the platform owner has to raise. Returns
+    /// `None` if the platform already satisfies the highest level.
+    pub fn gap_to_best(&self, comp_svn: &[u8; 16], pce_svn: u16) -> Option<TcbGap> {
+        let best = self.levels.first()?;
+        let mut shortfalls: Vec<TcbShortfall> = comp_svn
+            .iter()
+            .zip(&best.comp_svn)
+            .enumerate()
+            .filter(|(_, (have, need))| have < need)
+            .map(|(i, (&have, &need))| TcbShortfall {
+                component: Some(i),
+                label: self.component_labels[i].clone(),
+                have: have.into(),
+                need: need.into(),
+            })
+            .collect();
+        if pce_svn < best.pce_svn {
+            shortfalls.push(TcbShortfall {
+                component: None,
+                label: String::new(),
+                have: pce_svn,
+                need: best.pce_svn,
+            });
+        }
+        (!shortfalls.is_empty()).then(|| TcbGap {
+            best: best.clone(),
+            shortfalls,
         })
     }
 }

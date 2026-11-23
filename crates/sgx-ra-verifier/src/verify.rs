@@ -12,7 +12,7 @@ use crate::error::{VerifyError, cert_err, collateral_err};
 use crate::parse_and_check_structure;
 use crate::pck::PckExtensions;
 use crate::pki::{self, Cert, Role, TrustAnchor};
-use crate::tcb::{QeIdentity, TcbInfo, converge_tcb_status, verify_tcb_signer};
+use crate::tcb::{QeIdentity, TcbGap, TcbInfo, converge_tcb_status, verify_tcb_signer};
 
 /// Verification options.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -54,6 +54,10 @@ pub struct VerifiedQuote {
     pub platform_tcb_status: TcbStatus,
     /// TCB date of the matched platform TCB level.
     pub platform_tcb_date: String,
+    /// What the platform lacks for the best TCB level Intel defines for its
+    /// FMSPC; `None` if it is already there. Diagnostics only: this says
+    /// which components the platform owner has to update.
+    pub platform_tcb_gap: Option<TcbGap>,
     /// TCB status of the quoting enclave alone (from QE Identity).
     pub qe_tcb_status: TcbStatus,
     /// TCB evaluation data number of the TCB Info used.
@@ -242,12 +246,15 @@ pub(crate) fn verify_quote_with_anchor(
         }
     }
 
+    let platform_tcb_gap = tcb_info.gap_to_best(&pck.tcb.comp_svn, pck.tcb.pce_svn);
+
     Ok(VerifiedQuote {
         claims: VerifiedClaims::new(*quote.report_body(), status, advisory_ids),
         pck,
         pck_ca,
         platform_tcb_status: platform_level.status,
         platform_tcb_date: platform_level.tcb_date.clone(),
+        platform_tcb_gap,
         qe_tcb_status: qe_level.status,
         tcb_evaluation_data_number: tcb_info.tcb_evaluation_data_number,
         collateral_expiry: tcb_info.next_update.min(qe_identity.next_update),

@@ -12,7 +12,8 @@ attested channel. Each step says what it proves. The background is in
 > accepts every TCB status except `Revoked` by default and warns with the
 > Intel advisory IDs. `--strict-tcb` accepts only `UpToDate`, and
 > `--allow-tcb-status STATUS` (repeatable) accepts `UpToDate` plus the
-> listed statuses.
+> listed statuses. Why the status can't be fixed from the VM and what the
+> cloud provider has to change is in [TCB_STATUS.md](TCB_STATUS.md).
 
 ## Prerequisites
 

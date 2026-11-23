@@ -63,6 +63,7 @@ pub use collateral::{
 };
 pub use error::VerifyError;
 pub use pki::{INTEL_SGX_ROOT_CA_DER, INTEL_SGX_ROOT_CA_SHA256};
+pub use tcb::{TcbGap, TcbShortfall};
 pub use verify::{DcapVerifier, VerifiedQuote, VerifierOptions, collateral_request, verify_quote};
 
 /// Parses `raw` and applies the structural checks of `docs/PROTOCOL.md`

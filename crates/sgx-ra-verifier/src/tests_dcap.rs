@@ -121,6 +121,72 @@ fn real_quote_verifies_with_recorded_collateral() {
     );
     assert_eq!(v.tcb_evaluation_data_number, 20);
     assert_eq!(v.collateral_expiry, 1_797_975_260); // TCB Info nextUpdate
+    // The best level for this FMSPC is [15, 16, 3, 3, 255, 255, 1],
+    // SWHardeningNeeded: only the two microcode SVNs are behind.
+    let gap = v
+        .platform_tcb_gap
+        .expect("platform is below the best level");
+    assert_eq!(gap.best.status, TcbStatus::SwHardeningNeeded);
+    assert_eq!(gap.best.tcb_date, "2025-08-13T00:00:00Z");
+    let shortfalls: Vec<String> = gap.shortfalls.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        shortfalls,
+        [
+            "component 0 (BIOS, Early Microcode Update) is 7 < 15",
+            "component 1 (OS/VMM, SGX Late Microcode Update) is 9 < 16",
+        ]
+    );
+    assert_eq!(
+        gap.shortfalls[0].remedy(),
+        "update the BIOS / microcode of the physical host"
+    );
+}
+
+#[test]
+fn tcb_gap_reports_configuration_components() {
+    // The live executor's PCK TCB (2026-11-24, Alibaba Cloud ecs.c7t,
+    // Xeon 8369B): microcode behind and component 6 (the configuration bit
+    // behind "ConfigurationNeeded") clear.
+    let chain = pki::pem_certificates(
+        include_bytes!("../../../fixtures/dcap/tcb_info_issuer_chain.pem"),
+        "chain",
+    )
+    .unwrap();
+    let signer = pki::Cert::parse(&chain[0], "signer")
+        .unwrap()
+        .p256_key("signer")
+        .unwrap();
+    let info = crate::tcb::TcbInfo::verify_and_parse(
+        include_bytes!("../../../fixtures/dcap/tcb_info.json"),
+        &signer,
+    )
+    .unwrap();
+    let have = [14, 14, 3, 3, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let level = info.level_for(&have, 13).unwrap();
+    assert_eq!(level.status, TcbStatus::OutOfDateConfigurationNeeded);
+    let gap = info.gap_to_best(&have, 13).unwrap();
+    let parts: Vec<(Option<usize>, u16, u16)> = gap
+        .shortfalls
+        .iter()
+        .map(|s| (s.component, s.have, s.need))
+        .collect();
+    assert_eq!(
+        parts,
+        [(Some(0), 14, 15), (Some(1), 14, 16), (Some(6), 0, 1)]
+    );
+    assert_eq!(gap.shortfalls[2].label, "");
+    assert_eq!(
+        gap.shortfalls[2].remedy(),
+        "update or reconfigure the BIOS of the physical host"
+    );
+    assert_eq!(info.gap_to_best(&info.levels[0].comp_svn, 13), None);
+    assert!(
+        info.gap_to_best(&info.levels[0].comp_svn, 12)
+            .unwrap()
+            .shortfalls[0]
+            .component
+            .is_none()
+    );
 }
 
 #[test]

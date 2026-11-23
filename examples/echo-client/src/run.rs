@@ -350,6 +350,20 @@ fn report_verification(v: &VerifiedQuote, policy: &EnclavePolicy, expected: &Exp
             claims.advisory_ids().join(", ")
         ));
     }
+    if let Some(gap) = &v.platform_tcb_gap {
+        note(format!(
+            "The best TCB level Intel defines for this platform type is {} (TCB date {}); \
+             this platform falls short of it:",
+            gap.best.status, gap.best.tcb_date
+        ));
+        for s in &gap.shortfalls {
+            note(format!("  {s}: {}", s.remedy()));
+        }
+        note(
+            "Only the operator of the physical machine can raise these SVNs (docs/TCB_STATUS.md); \
+             nothing in the enclave, the host app or the client changes them",
+        );
+    }
     ok("Enclave is not in debug mode (DEBUG attribute clear) and is 64-bit");
     ok(format!(
         "Remote MRENCLAVE {} is identical to the local build: the remote runs exactly the code we built",

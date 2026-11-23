@@ -236,8 +236,10 @@ CONFIGID or uses the provisioning key. Tracked as hardening
   only through explicit `allow_tcb_status` calls.
 * `echo-client` default: every status except `Revoked`, so that it works
   against the public executor, a KVM guest whose operator cannot update
-  the platform TCB (`OutOfDateConfigurationNeeded`). A non-`UpToDate`
-  platform is reported with a warning naming the Intel advisories.
+  the platform TCB (`OutOfDateConfigurationNeeded`; see
+  [TCB_STATUS.md](TCB_STATUS.md)). A non-`UpToDate` platform is reported
+  with a warning naming the Intel advisories and the TCB components that
+  fall short (`VerifiedQuote::platform_tcb_gap`).
   `--strict-tcb` restores `UpToDate` only, and `--allow-tcb-status` narrows
   the set to `UpToDate` plus the listed statuses. Accepting an out-of-date
   platform means trusting that the listed advisories are not exploited
