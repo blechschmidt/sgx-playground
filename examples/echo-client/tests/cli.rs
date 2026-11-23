@@ -265,7 +265,7 @@ fn unreachable_collateral_service_fails() {
 }
 
 #[test]
-fn verified_quote_out_of_date_platform_is_rejected_by_default() {
+fn verified_quote_out_of_date_platform_is_rejected_with_strict_tcb() {
     if !collateral_still_valid() {
         return;
     }
@@ -281,6 +281,7 @@ fn verified_quote_out_of_date_platform_is_rejected_by_default() {
         QUOTE_MRENCLAVE,
         "--pccs-url",
         &url,
+        "--strict-tcb",
     ]);
     let (stdout, stderr) = text(&out);
     assert_eq!(out.status.code(), Some(1), "{stdout}\n{stderr}");

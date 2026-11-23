@@ -21,7 +21,7 @@ use sgx_ra_client::{
     VerifierOptions, VerifyError, dcap_verifier,
 };
 
-use crate::args::{ConnectArgs, DEFAULT_MESSAGE, ServiceArg};
+use crate::args::{ConnectArgs, DEFAULT_DOCKERFILE, DEFAULT_MESSAGE, MeasurementArgs, ServiceArg};
 use crate::exit;
 
 /// A failed step: printed as `[FAIL] <message>`, exits with `code`.
@@ -171,14 +171,8 @@ fn expected_measurement(args: &ConnectArgs) -> Result<Expected, Failure> {
     let engine = m.container_engine.resolve().ok_or_else(|| {
         fail("Reproducible build impossible: neither docker nor podman found (use --gendata-path or --expected-mrenclave)")
     })?;
-    if !m.dockerfile.is_file() {
-        return Err(fail(format!(
-            "Dockerfile {} not found (run from the repository root or pass --dockerfile/--build-context)",
-            m.dockerfile.display()
-        )));
-    }
-    let mut build =
-        ReproducibleBuild::new(engine, &m.dockerfile, &m.build_context).no_cache(m.no_cache);
+    let (dockerfile, context) = build_inputs(m)?;
+    let mut build = ReproducibleBuild::new(engine, &dockerfile, &context).no_cache(m.no_cache);
     for (k, v) in &m.build_args {
         build = build.build_arg(k, v);
     }
@@ -193,8 +187,8 @@ fn expected_measurement(args: &ConnectArgs) -> Result<Expected, Failure> {
     note(format!(
         "Building the enclave from source with {} ({}, context {}); this can take several minutes",
         engine.program(),
-        m.dockerfile.display(),
-        m.build_context.display()
+        dockerfile.display(),
+        context.display()
     ));
     let output = build
         .run(&output_dir)
@@ -222,6 +216,26 @@ fn expected_measurement(args: &ConnectArgs) -> Result<Expected, Failure> {
     })
 }
 
+/// The Dockerfile and build context. With the defaults (relative to the
+/// working directory) missing, falls back to the source tree this client
+/// was compiled from, so `cargo run` works from any directory.
+fn build_inputs(m: &MeasurementArgs) -> Result<(PathBuf, PathBuf), Failure> {
+    if m.dockerfile.is_file() {
+        return Ok((m.dockerfile.clone(), m.build_context.clone()));
+    }
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let defaults =
+        m.dockerfile == Path::new(DEFAULT_DOCKERFILE) && m.build_context == Path::new(".");
+    if defaults && workspace.join(DEFAULT_DOCKERFILE).is_file() {
+        let workspace = workspace.canonicalize().unwrap_or(workspace);
+        return Ok((workspace.join(DEFAULT_DOCKERFILE), workspace));
+    }
+    Err(fail(format!(
+        "Dockerfile {} not found (run from the repository root or pass --dockerfile/--build-context)",
+        m.dockerfile.display()
+    )))
+}
+
 /// MRENCLAVE from the build; ISVPRODID / minimum ISVSVN default to the
 /// values the build signed in (they are not part of MRENCLAVE).
 fn build_policy(args: &ConnectArgs, expected: &Expected) -> EnclavePolicy {
@@ -237,8 +251,8 @@ fn build_policy(args: &ConnectArgs, expected: &Expected) -> EnclavePolicy {
     if let Some(svn) = p.min_isv_svn.or(gendata_body.map(|b| b.isv_svn)) {
         policy = policy.with_min_isv_svn(svn);
     }
-    for status in &p.allowed_tcb_statuses {
-        policy = policy.allow_tcb_status(*status);
+    for status in p.tcb_statuses() {
+        policy = policy.allow_tcb_status(status);
     }
     policy
 }
@@ -360,8 +374,12 @@ fn report_verification(v: &VerifiedQuote, policy: &EnclavePolicy, expected: &Exp
     }
     if claims.tcb_status() != TcbStatus::UpToDate {
         log::warn!(
-            "accepted a platform with TCB status {} because of --allow-tcb-status",
-            claims.tcb_status()
+            "accepted a platform with TCB status {}{}; pass --strict-tcb to require UpToDate",
+            claims.tcb_status(),
+            match claims.advisory_ids() {
+                [] => String::new(),
+                ids => format!(" (affected by {})", ids.join(", ")),
+            }
         );
     }
 }
@@ -598,6 +616,9 @@ mod tests {
         assert_eq!(p.isv_prod_id(), Some(gendata.body.isv_prod_id));
         assert_eq!(p.min_isv_svn(), Some(gendata.body.isv_svn));
         assert_eq!(p.mr_signer(), None);
+        assert!(p.allowed_tcb_statuses().contains(TcbStatus::OutOfDate));
+        assert!(!p.allowed_tcb_statuses().contains(TcbStatus::Revoked));
+        let p = build_policy(&args(&["--strict-tcb"]), &expected);
         assert!(!p.allowed_tcb_statuses().contains(TcbStatus::OutOfDate));
 
         let p = build_policy(
@@ -614,6 +635,10 @@ mod tests {
         assert_eq!(p.isv_prod_id(), Some(7));
         assert_eq!(p.min_isv_svn(), Some(0));
         assert!(p.allowed_tcb_statuses().contains(TcbStatus::OutOfDate));
+        assert!(
+            !p.allowed_tcb_statuses()
+                .contains(TcbStatus::OutOfDateConfigurationNeeded)
+        );
 
         let pinned = Expected {
             mr_enclave: Measurement([1; 32]),

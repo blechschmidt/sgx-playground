@@ -11,6 +11,9 @@ use sgx_ra_client::{ContainerEngine, INTEL_PCS_URL};
 /// (the blueprint's greeting).
 pub const DEFAULT_MESSAGE: &str = "Hello, SGX server!";
 
+/// The reproducible build's Dockerfile, relative to the repository root.
+pub const DEFAULT_DOCKERFILE: &str = "containers/Dockerfile.nix-build";
+
 /// Rebuild the echo enclave reproducibly, attest the remote enclave and talk
 /// to it over a channel whose key provably lives only inside that enclave.
 #[derive(Debug, Parser)]
@@ -85,14 +88,12 @@ pub struct TransportArgs {
 #[derive(Debug, Args)]
 pub struct MeasurementArgs {
     /// Dockerfile of the reproducible Nix build container.
-    #[arg(
-        long,
-        value_name = "FILE",
-        default_value = "containers/Dockerfile.nix-build"
-    )]
+    #[arg(long, value_name = "FILE", default_value = DEFAULT_DOCKERFILE)]
     pub dockerfile: PathBuf,
 
-    /// Build context directory (the repository root).
+    /// Build context directory (the repository root). If the defaults do not
+    /// exist in the working directory, the source tree the client was built
+    /// from is used.
     #[arg(long, value_name = "DIR", default_value = ".")]
     pub build_context: PathBuf,
 
@@ -161,12 +162,34 @@ pub struct PolicyArgs {
     #[arg(long, value_name = "SVN")]
     pub min_isv_svn: Option<u16>,
 
-    /// Also accept platforms with this TCB status (repeatable; UpToDate is
-    /// always accepted): SWHardeningNeeded, ConfigurationNeeded,
+    /// Accept only UpToDate platforms plus these TCB statuses (repeatable):
+    /// SWHardeningNeeded, ConfigurationNeeded,
     /// ConfigurationAndSWHardeningNeeded, OutOfDate,
     /// OutOfDateConfigurationNeeded. Revoked can never be accepted.
+    /// Default: every status except Revoked, with a warning naming the
+    /// Intel advisories (the public executor is OutOfDateConfigurationNeeded).
     #[arg(long = "allow-tcb-status", value_name = "STATUS", value_parser = parse_tcb_status)]
     pub allowed_tcb_statuses: Vec<TcbStatus>,
+
+    /// Accept only platforms with TCB status UpToDate.
+    #[arg(long, conflicts_with = "allowed_tcb_statuses")]
+    pub strict_tcb: bool,
+}
+
+impl PolicyArgs {
+    /// The TCB statuses accepted besides UpToDate.
+    pub fn tcb_statuses(&self) -> Vec<TcbStatus> {
+        if self.strict_tcb {
+            Vec::new()
+        } else if self.allowed_tcb_statuses.is_empty() {
+            TcbStatus::ALL
+                .into_iter()
+                .filter(|s| !matches!(s, TcbStatus::UpToDate | TcbStatus::Revoked))
+                .collect()
+        } else {
+            self.allowed_tcb_statuses.clone()
+        }
+    }
 }
 
 /// DCAP collateral source. It is not trusted: all collateral is verified
@@ -291,6 +314,13 @@ mod tests {
         assert!(c.measurement.expected_mrenclave.is_none());
         assert!(c.messages.is_empty() && !c.interactive);
         assert!(!c.transport.insecure_tls && !c.transport.plaintext);
+        // Everything but Revoked, so the public executor's
+        // OutOfDateConfigurationNeeded platform is accepted.
+        let tcb = c.policy.tcb_statuses();
+        assert!(tcb.contains(&TcbStatus::OutOfDateConfigurationNeeded));
+        assert!(!tcb.contains(&TcbStatus::Revoked));
+        let strict = Cli::try_parse_from(["echo-client", "--strict-tcb"]).unwrap();
+        assert!(strict.connect.policy.tcb_statuses().is_empty());
     }
 
     #[test]
@@ -309,6 +339,12 @@ mod tests {
                 &"0".repeat(64),
             ],
             &["echo-client", "--loglevel", "loud"],
+            &[
+                "echo-client",
+                "--strict-tcb",
+                "--allow-tcb-status",
+                "OutOfDate",
+            ],
         ] {
             assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
         }
