@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use sgx_ra_client::sgx_ra_core::attestation::{EnclavePolicy, TcbStatus};
+use sgx_ra_client::sgx_ra_core::attestation::{EnclavePolicy, PolicyViolation, TcbStatus};
 use sgx_ra_client::sgx_ra_core::binding::{REPORT_DATA_LABEL, report_data_for};
 use sgx_ra_client::sgx_ra_core::channel::{AttestedChannel, SecureChannel};
 use sgx_ra_client::sgx_ra_core::handshake::HandshakeError;
@@ -120,6 +120,10 @@ fn flow(args: &ConnectArgs) -> Result<(), Failure> {
     let verified = verifier
         .verify_detailed(&quote, &policy)
         .map_err(|e| match e {
+            VerifyError::Policy(v @ PolicyViolation::AdvisoryNotAllowed { .. }) => fail(format!(
+                "Policy rejected the enclave: {v} (review the advisory, then pass \
+                 --allow-advisory for each acceptable one, or --any-advisory)"
+            )),
             VerifyError::Policy(v) => fail(format!("Policy rejected the enclave: {v}")),
             e => fail(format!("Quote verification failed: {e}")),
         })?;
@@ -254,6 +258,9 @@ fn build_policy(args: &ConnectArgs, expected: &Expected) -> EnclavePolicy {
     for status in p.tcb_statuses() {
         policy = policy.allow_tcb_status(status);
     }
+    if let Some(ids) = p.advisory_allowlist() {
+        policy = policy.allow_advisories(ids);
+    }
     policy
 }
 
@@ -345,8 +352,13 @@ fn report_verification(v: &VerifiedQuote, policy: &EnclavePolicy, expected: &Exp
         v.platform_tcb_date
     ));
     if !claims.advisory_ids().is_empty() {
+        let checked = if policy.allowed_advisories().is_some() {
+            "all on the advisory allowlist"
+        } else {
+            "not checked (--any-advisory)"
+        };
         note(format!(
-            "Intel security advisories: {}",
+            "Intel security advisories: {} ({checked})",
             claims.advisory_ids().join(", ")
         ));
     }
@@ -632,8 +644,15 @@ mod tests {
         assert_eq!(p.mr_signer(), None);
         assert!(p.allowed_tcb_statuses().contains(TcbStatus::OutOfDate));
         assert!(!p.allowed_tcb_statuses().contains(TcbStatus::Revoked));
+        assert_eq!(p.allowed_advisories().map(<[_]>::len), Some(6));
         let p = build_policy(&args(&["--strict-tcb"]), &expected);
         assert!(!p.allowed_tcb_statuses().contains(TcbStatus::OutOfDate));
+        assert_eq!(p.allowed_advisories(), None);
+        let p = build_policy(&args(&["--allow-advisory", "INTEL-SA-00615"]), &expected);
+        assert_eq!(
+            p.allowed_advisories(),
+            Some(&["INTEL-SA-00615".to_owned()][..])
+        );
 
         let p = build_policy(
             &args(&[

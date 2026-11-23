@@ -1087,3 +1087,142 @@ fn synthetic_freshness_of_crls() {
         })
     ));
 }
+
+// ---------------------------------------------------------------------------
+// Recorded quote of the public executor (OutOfDateConfigurationNeeded)
+// ---------------------------------------------------------------------------
+
+const LIVE_QUOTE: &[u8] = include_bytes!("../../../fixtures/live/quote.dat");
+
+/// 2026-11-24T00:00:00Z: all recorded live collateral is current.
+const T_LIVE: i64 = 1_795_478_400;
+
+fn live_collateral() -> Collateral {
+    Collateral {
+        root_ca_crl: include_bytes!("../../../fixtures/live/root_ca_crl.der").to_vec(),
+        pck_crl: include_bytes!("../../../fixtures/live/pck_crl_platform.der").to_vec(),
+        tcb_info: include_bytes!("../../../fixtures/live/tcb_info.json").to_vec(),
+        tcb_info_issuer_chain: include_bytes!("../../../fixtures/live/tcb_info_issuer_chain.pem")
+            .to_vec(),
+        qe_identity: include_bytes!("../../../fixtures/live/qe_identity.json").to_vec(),
+        qe_identity_issuer_chain: include_bytes!(
+            "../../../fixtures/live/qe_identity_issuer_chain.pem"
+        )
+        .to_vec(),
+    }
+}
+
+fn live_policy() -> EnclavePolicy {
+    let quote = Quote::parse(LIVE_QUOTE).unwrap();
+    EnclavePolicy::new(quote.report_body().mr_enclave())
+}
+
+fn live_verifier() -> DcapVerifier<StaticCollateral> {
+    DcapVerifier::new(StaticCollateral(live_collateral())).with_options(at(T_LIVE))
+}
+
+fn ice_lake_policy() -> EnclavePolicy {
+    tcb::ICE_LAKE_SP_TCB_STATUSES
+        .into_iter()
+        .fold(live_policy(), EnclavePolicy::allow_tcb_status)
+        .allow_advisories(tcb::ICE_LAKE_SP_ADVISORIES)
+}
+
+#[test]
+fn live_quote_is_out_of_date_configuration_needed() {
+    let v = verify_quote(LIVE_QUOTE, &live_collateral(), &at(T_LIVE)).unwrap();
+    assert_eq!(v.pck.fmspc, [0x00, 0x60, 0x6a, 0, 0, 0]);
+    assert_eq!(
+        v.platform_tcb_status,
+        TcbStatus::OutOfDateConfigurationNeeded
+    );
+    assert_eq!(v.platform_tcb_date, "2024-03-13T00:00:00Z");
+    assert_eq!(v.qe_tcb_status, TcbStatus::UpToDate);
+    assert_eq!(
+        v.claims.tcb_status(),
+        TcbStatus::OutOfDateConfigurationNeeded
+    );
+    let mut ids = v.claims.advisory_ids().to_vec();
+    ids.sort();
+    assert_eq!(
+        ids,
+        [
+            "INTEL-SA-00615",
+            "INTEL-SA-00657",
+            "INTEL-SA-00767",
+            "INTEL-SA-01079",
+            "INTEL-SA-01103",
+            "INTEL-SA-01153"
+        ]
+    );
+    let gap = v.platform_tcb_gap.unwrap();
+    assert_eq!(gap.best.status, TcbStatus::SwHardeningNeeded);
+}
+
+#[test]
+fn live_quote_policy() {
+    let verifier = live_verifier();
+    // UpToDate only (--strict-tcb): rejected.
+    assert_eq!(
+        verifier.verify(LIVE_QUOTE, &live_policy()),
+        Err(VerifyError::Policy(PolicyViolation::TcbStatusNotAllowed(
+            TcbStatus::OutOfDateConfigurationNeeded
+        )))
+    );
+    // Statuses and advisories allowlisted: accepted.
+    let claims = verifier.verify(LIVE_QUOTE, &ice_lake_policy()).unwrap();
+    assert_eq!(claims.tcb_status(), TcbStatus::OutOfDateConfigurationNeeded);
+    // The best level reachable on Ice Lake SP only: rejected.
+    assert_eq!(
+        verifier.verify(
+            LIVE_QUOTE,
+            &live_policy()
+                .allow_tcb_status(TcbStatus::SwHardeningNeeded)
+                .allow_advisories(tcb::ICE_LAKE_SP_ADVISORIES)
+        ),
+        Err(VerifyError::Policy(PolicyViolation::TcbStatusNotAllowed(
+            TcbStatus::OutOfDateConfigurationNeeded
+        )))
+    );
+    // Status allowed, but one advisory missing from the allowlist: rejected.
+    for missing in tcb::ICE_LAKE_SP_ADVISORIES {
+        let policy = live_policy()
+            .allow_tcb_status(TcbStatus::OutOfDateConfigurationNeeded)
+            .allow_advisories(
+                tcb::ICE_LAKE_SP_ADVISORIES
+                    .into_iter()
+                    .filter(|id| *id != missing),
+            );
+        assert_eq!(
+            verifier.verify(LIVE_QUOTE, &policy),
+            Err(VerifyError::Policy(PolicyViolation::AdvisoryNotAllowed {
+                status: TcbStatus::OutOfDateConfigurationNeeded,
+                advisory_id: missing.into(),
+            }))
+        );
+    }
+}
+
+#[test]
+fn ice_lake_allowlist_matches_recorded_tcb_info() {
+    // Every level from 2024-03-13 up has an allowlisted status and only
+    // allowlisted advisories; every older level carries another advisory.
+    let chain = pki::pem_certificates(&live_collateral().tcb_info_issuer_chain, "chain").unwrap();
+    let signer = pki::Cert::parse(&chain[0], "signer")
+        .unwrap()
+        .p256_key("signer")
+        .unwrap();
+    let levels = tcb::TcbInfo::verify_and_parse(&live_collateral().tcb_info, &signer)
+        .unwrap()
+        .levels;
+    let covered = |l: &tcb::TcbLevel| {
+        tcb::ICE_LAKE_SP_TCB_STATUSES.contains(&l.status)
+            && l.advisory_ids
+                .iter()
+                .all(|id| tcb::ICE_LAKE_SP_ADVISORIES.contains(&id.as_str()))
+    };
+    for l in &levels {
+        assert_eq!(covered(l), l.tcb_date.as_str() >= "2024-03-13", "{l:?}");
+    }
+    assert!(levels.iter().any(|l| !covered(l)));
+}

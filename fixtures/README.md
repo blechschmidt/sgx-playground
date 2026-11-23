@@ -60,3 +60,31 @@ is `UpToDate`, so the converged status is `OutOfDate`, with TCB evaluation data 
 `intel_sgx_root_ca.der` is byte-identical to the PEM Intel publishes at
 `certificates.trustedservices.intel.com/Intel_SGX_Provisioning_Certification_RootCA.pem`
 and to `crates/sgx-ra-verifier/src/intel_sgx_root_ca.der`.
+
+## `live/`: the public executor's quote and its collateral
+
+`quote.dat` is a quote `sgx-playground.blechschmidt.io:443` sent on
+2026-11-23 (echo enclave, MRENCLAVE
+`bdd7e7862557e60ed2db5c01aa6bc46f6ede0483209fa39680caf7b889a09263`; the
+report_data binds that session's ephemeral channel key). The PCK leaf
+(Platform CA) is for FMSPC `00606a000000` (Xeon Platinum 8369B, Ice Lake SP,
+Alibaba Cloud KVM guest). The collateral was recorded from Intel PCS v4
+(no API key) on 2026-11-23 23:10 UTC, the same way as `dcap/`. Tests verify at
+2026-11-24T00:00:00Z. The first item to expire is the PCK CRL, at
+2026-12-23T22:33:45Z.
+
+| File | Size | SHA-256 |
+|------|------|---------|
+| `pck_crl_platform.der` | 3354 | `6f09536f4cdde7c724557870aa08abff0e5985ffeed7173855086988e03df2b0` |
+| `qe_identity.json` | 1380 | `c8fbe85d41866f9fca29821214c99d2dbcf5eb81fed0c3e07201d92cd4a85ee9` |
+| `qe_identity_issuer_chain.pem` | 1892 | `c550544e4442d9be583a5eddd48df8ba0149ddeef40efd3737ebe0f885dc3711` |
+| `quote.dat` | 4734 | `bf4a1d71245ee93aa07f5b49d5a7016825bf780a15e946b4db08e06a0cf4d48e` |
+| `root_ca_crl.der` | 294 | `c114be5d5ca7aab2d37817eca55aa8a2353853809904ff3695b31c26bcb7465b` |
+| `tcb_info.json` | 9346 | `4c6715edd4f8039ace161369fb8adaaf43ff27f47056d2a7f08103f13adb0412` |
+| `tcb_info_issuer_chain.pem` | 1892 | `c550544e4442d9be583a5eddd48df8ba0149ddeef40efd3737ebe0f885dc3711` |
+
+Expected verification result: PCK TCB components `14 14 3 3 255 255 0 0…`,
+PCE SVN 13, matching the 2024-03-13 level `OutOfDateConfigurationNeeded`
+(TCB evaluation data number 20). The QE is `UpToDate`. Advisories:
+INTEL-SA-00615, -00657, -00767, -01079, -01103, -01153. The best level for this
+FMSPC is `SWHardeningNeeded` (2025-08-13).

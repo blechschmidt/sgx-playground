@@ -9,10 +9,12 @@ attested channel. Each step says what it proves. The background is in
 > **The public executor** runs the Rust host and echo enclave on real SGX
 > hardware. It is a KVM guest whose platform TCB status is
 > `OutOfDateConfigurationNeeded` (TCB date 2024-03-13). `echo-client`
-> accepts every TCB status except `Revoked` by default and warns with the
-> Intel advisory IDs. `--strict-tcb` accepts only `UpToDate`, and
+> accepts it by default because the status and each of its Intel
+> advisories are on explicit allowlists; a platform with any other advisory
+> is rejected. `--strict-tcb` accepts only `UpToDate`,
 > `--allow-tcb-status STATUS` (repeatable) accepts `UpToDate` plus the
-> listed statuses. Why the status can't be fixed from the VM and what the
+> listed statuses, and `--allow-advisory ID` (repeatable) /
+> `--any-advisory` replace / disable the advisory allowlist. Why the status can't be fixed from the VM and what the
 > cloud provider has to change is in [TCB_STATUS.md](TCB_STATUS.md).
 
 ## Prerequisites
@@ -64,11 +66,11 @@ over the attested channel. Output from 2026-11-24 (abridged):
 [OK] no SGX SDK / DCAP / quote provider library installed
 [OK] echo-client links only:  linux-vdso.so.1 libc.so.6 libgcc_s.so.1 /lib64/ld-linux-x86-64.so.2
 [OK] no capabilities (CapEff: 0000000000000000), own network namespace, read-only root
-[OK] Expected MRENCLAVE from /enclave/enclave.so.gendata: bdd7e786…
+[OK] Expected MRENCLAVE from /enclave/enclave.so.gendata: 3f31f232…
 [OK] Connected to sgx-playground.blechschmidt.io:443 via TLS (…, certificate verified against the Mozilla roots); …
 [OK] PCK certificate chain verified up to the pinned Intel SGX Root CA (…); … PCK certificate not revoked
 …
-[OK] Remote MRENCLAVE bdd7e786… is identical to the local build: the remote runs exactly the code we built
+[OK] Remote MRENCLAVE 3f31f232… is identical to the local build: the remote runs exactly the code we built
 [OK] Attested report_data binds the enclave's channel public key …
 [OK] Handshake complete: the enclave proved possession of the attested private key …
 Reply received from server: Hello, SGX server!
@@ -193,7 +195,7 @@ All options are listed in [examples/echo-client/README.md](../examples/echo-clie
 ### What a successful run checks
 
 ```
-[OK] Expected MRENCLAVE from the local build: bdd7e786…
+[OK] Expected MRENCLAVE from the local build: 3f31f232…
 [OK] Connected to sgx-playground.blechschmidt.io:443 via TLS (…); TLS ends outside the enclave and is treated as an untrusted pipe
 [OK] Received quote (… bytes)
 [OK] Quote structure valid: DCAP v3 ECDSA-P256 quote from the Intel QE, PCK certificate chain attached
@@ -203,7 +205,7 @@ All options are listed in [examples/echo-client/README.md](../examples/echo-clie
 [OK] Quote signature over header and enclave report verified with the attestation key
 [OK] Platform TCB status UpToDate (…); allowed by policy
 [OK] Enclave is not in debug mode (DEBUG attribute clear) and is 64-bit
-[OK] Remote MRENCLAVE bdd7e786… is identical to the local build: the remote runs exactly the code we built
+[OK] Remote MRENCLAVE 3f31f232… is identical to the local build: the remote runs exactly the code we built
 [OK] MRSIGNER … (not pinned)   ISVPRODID 1 = 1 …   ISVSVN 1 >= 1 …
 [OK] Attested report_data binds the enclave's channel public key …: report_data = SHA-256("SGXRA-v1/report-data" || 00 01 || key) || 0^32 = …
 [OK] Handshake complete: the enclave proved possession of the attested private key (key confirmation verified); …

@@ -81,7 +81,8 @@ guest (`systemd-detect-virt` → `kvm`, DMI "Alibaba Cloud ECS"):
 * CPUSVN is computed by the CPU. The PCK certificate and the TCB Info are
   signed by Intel. A PCCS, a different collateral source or a verifier option
   can't make the platform look better. They can only make the verifier
-  accept it, which `echo-client` already does by default.
+  accept it, which `echo-client` does by default through explicit
+  allowlists (below).
 * The enclave, the host app and the Nix build don't feed into the TCB status.
   MRENCLAVE stays the same whatever the status is.
 
@@ -123,7 +124,7 @@ executor:
 
 ```text
 [OK] Platform TCB status OutOfDateConfigurationNeeded (platform OutOfDateConfigurationNeeded, TCB date 2024-03-13T00:00:00Z); allowed by policy
-     Intel security advisories: INTEL-SA-00657, INTEL-SA-00767, INTEL-SA-01079, INTEL-SA-01103, INTEL-SA-01153, INTEL-SA-00615
+     Intel security advisories: INTEL-SA-00657, INTEL-SA-00767, INTEL-SA-01079, INTEL-SA-01103, INTEL-SA-01153, INTEL-SA-00615 (all on the advisory allowlist)
      The best TCB level Intel defines for this platform type is SWHardeningNeeded (TCB date 2025-08-13T00:00:00Z); this platform falls short of it:
        component 0 (BIOS, Early Microcode Update) is 14 < 15: update the BIOS / microcode of the physical host
        component 1 (OS/VMM, SGX Late Microcode Update) is 14 < 16: load newer microcode in the host OS / VMM, or update the BIOS
@@ -136,16 +137,60 @@ Other applications get the same diagnosis from the verifier crate:
 `TcbInfo::gap_to_best`.
 
 The policy stays a decision for the relying party
-([THREAT_MODEL.md §4.7](THREAT_MODEL.md#47-tcb-status-policy-defaults--ok)):
+([THREAT_MODEL.md §4.7](THREAT_MODEL.md#47-tcb-status-policy-defaults--ok)).
+`echo-client` accepts a non-`UpToDate` platform only if **both** hold
+(deny by default):
+
+1. its TCB status is on the status allowlist. Default
+   (`sgx_ra_verifier::tcb::ICE_LAKE_SP_TCB_STATUSES`): `SWHardeningNeeded`,
+   `ConfigurationAndSWHardeningNeeded`, `OutOfDate`,
+   `OutOfDateConfigurationNeeded`. These are the statuses of the
+   levels from 2024-03-13 up in the table above. `ConfigurationNeeded` is
+   not on it, and `Revoked` never can be.
+2. every Intel advisory it is affected by is on the advisory allowlist.
+   Default (`sgx_ra_verifier::tcb::ICE_LAKE_SP_ADVISORIES`):
+
+   | Advisory | Why it applies here | Fixed by |
+   |---|---|---|
+   | INTEL-SA-00615 | MMIO stale data; every Ice Lake SP | nothing (software hardening) |
+   | INTEL-SA-00657 | ÆPIC Leak | BIOS configuration (component 6) |
+   | INTEL-SA-00767 | SGX error injection | BIOS configuration (component 6) |
+   | INTEL-SA-01079, INTEL-SA-01103 | microcode | 2024-11-13 TCB recovery |
+   | INTEL-SA-01153 | microcode | 2025-08-13 TCB recovery |
+
+   A platform with any other advisory is rejected:
+   `[FAIL] Policy rejected the enclave: platform (TCB status …) is affected
+   by INTEL-SA-…, which is not on the advisory allowlist`. Every level
+   older than 2024-03-13 carries INTEL-SA-00960, so those are rejected,
+   and so is any advisory Intel adds to this FMSPC later, until someone
+   reviews it and allowlists it.
+
+The lists are checked against the recorded TCB Info and live quote in
+`fixtures/live/` (`cargo test -p sgx-ra-verifier live`). Library users
+get the same behaviour with
+`EnclavePolicy::allow_tcb_status(…)` and `.allow_advisories(…)`
+(`PolicyViolation::AdvisoryNotAllowed`).
 
 | Flag | Accepts |
 |---|---|
-| *(default)* | every status except `Revoked`, with a warning and the gap above |
-| `--allow-tcb-status SWHardeningNeeded` | `UpToDate` and `SWHardeningNeeded`: the strictest policy a fully patched Ice Lake SP passes. The live executor fails it until its host is fixed. |
-| `--allow-tcb-status …` (repeatable) | `UpToDate` plus the listed statuses |
+| *(default)* | `UpToDate`, plus the allowlisted statuses if all advisories are allowlisted; a warning with the gap above |
+| `--allow-tcb-status S` (repeatable) | `UpToDate` plus the listed statuses (replaces the status allowlist; advisories still checked) |
+| `--allow-tcb-status SWHardeningNeeded` | the strictest policy a fully patched Ice Lake SP passes. The live executor fails it until its host is fixed. |
+| `--allow-advisory ID` (repeatable) | replaces the advisory allowlist, e.g. `--allow-advisory INTEL-SA-00615` alone admits only a fully patched and configured host |
+| `--any-advisory` | no advisory check (statuses only) |
 | `--strict-tcb` | `UpToDate` only. No Ice Lake SP platform passes it. |
 
 Accepting `OutOfDateConfigurationNeeded` means trusting that the listed
 advisories aren't exploited against this host. They need a privileged
 attacker on the physical platform: the cloud provider or someone who has
 compromised the hypervisor.
+
+## Follow-up for the platform owner
+
+Moving the executor to a better TCB level needs access this project
+doesn't have: the Alibaba Cloud console/API for instance
+`i-k1a0k8f34bzqns3p03x5` (to stop/start or redeploy it onto another
+physical host) or a support ticket asking for the BIOS/microcode update
+and the INTEL-SA-00657/-00767 BIOS configuration. Once it reaches
+`SWHardeningNeeded`, tighten the default to
+`--allow-tcb-status SWHardeningNeeded --allow-advisory INTEL-SA-00615`.

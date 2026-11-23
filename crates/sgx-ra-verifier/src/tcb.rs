@@ -21,6 +21,42 @@ use crate::pki::{self, Cert, RevokedSerials, Role, TrustAnchor};
 /// Common name of the certificate that signs TCB Info and QE Identity.
 pub const TCB_SIGNING_CN: &str = "Intel SGX TCB Signing";
 
+/// TCB statuses a relying party may reasonably accept for the 3rd-gen Xeon
+/// Scalable (Ice Lake SP) SGX servers clouds offer, besides `UpToDate`.
+///
+/// These are the statuses of the TCB levels from the 2024-03-13 TCB recovery
+/// up, for FMSPC `00606a000000` (TCB evaluation data number 20).
+/// `UpToDate` is unreachable on that CPU (INTEL-SA-00615 leaves
+/// `SWHardeningNeeded` as the best level); the public executor is at
+/// `OutOfDateConfigurationNeeded` (`docs/TCB_STATUS.md`). Meant to be paired
+/// with [`ICE_LAKE_SP_ADVISORIES`], which is what keeps older or differently
+/// affected platforms out. `ConfigurationNeeded` and `Revoked` are not listed.
+pub const ICE_LAKE_SP_TCB_STATUSES: [TcbStatus; 4] = [
+    TcbStatus::SwHardeningNeeded,
+    TcbStatus::ConfigurationAndSwHardeningNeeded,
+    TcbStatus::OutOfDate,
+    TcbStatus::OutOfDateConfigurationNeeded,
+];
+
+/// The Intel advisories of the TCB levels from the 2024-03-13 TCB recovery
+/// up, for FMSPC `00606a000000` (TCB evaluation data number 20). A platform
+/// affected by any other advisory (for example INTEL-SA-00960, which every
+/// level older than 2024-03-13 carries) is not covered.
+pub const ICE_LAKE_SP_ADVISORIES: [&str; 6] = [
+    // MMIO stale data. Applies to every Ice Lake SP; the reason the best
+    // level is SWHardeningNeeded.
+    "INTEL-SA-00615",
+    // ÆPIC Leak (x2APIC) and SGX error injection: BIOS configuration
+    // (the "ConfigurationNeeded" part, TCB component 6).
+    "INTEL-SA-00657",
+    "INTEL-SA-00767",
+    // Fixed by the 2024-11-13 TCB recovery (microcode, components 0/1).
+    "INTEL-SA-01079",
+    "INTEL-SA-01103",
+    // Fixed by the 2025-08-13 TCB recovery (microcode, components 0/1).
+    "INTEL-SA-01153",
+];
+
 /// Upper bound on the number of TCB levels accepted in a document.
 const MAX_TCB_LEVELS: usize = 512;
 

@@ -234,16 +234,26 @@ CONFIGID or uses the provisioning key. Tracked as hardening
 * Library default: **`UpToDate` only** (`EnclavePolicy::new`,
   `attestation.rs`, `TcbStatusSet::up_to_date_only()`). Statuses are added
   only through explicit `allow_tcb_status` calls.
-* `echo-client` default: every status except `Revoked`, so that it works
-  against the public executor, a KVM guest whose operator cannot update
-  the platform TCB (`OutOfDateConfigurationNeeded`; see
-  [TCB_STATUS.md](TCB_STATUS.md)). A non-`UpToDate` platform is reported
-  with a warning naming the Intel advisories and the TCB components that
-  fall short (`VerifiedQuote::platform_tcb_gap`).
-  `--strict-tcb` restores `UpToDate` only, and `--allow-tcb-status` narrows
-  the set to `UpToDate` plus the listed statuses. Accepting an out-of-date
-  platform means trusting that the listed advisories are not exploited
-  against it.
+* Advisory allowlist: `EnclavePolicy::allow_advisories` additionally
+  requires every Intel advisory of the platform to be listed
+  (`PolicyViolation::AdvisoryNotAllowed` otherwise). Without it, advisories
+  are not checked.
+* `echo-client` default: `UpToDate` plus the statuses in
+  `tcb::ICE_LAKE_SP_TCB_STATUSES`, **and** every advisory in
+  `tcb::ICE_LAKE_SP_ADVISORIES` (INTEL-SA-00615, -00657, -00767, -01079,
+  -01103, -01153: the advisories of the Ice Lake SP TCB levels from
+  2024-03-13 up). That admits the public executor, a KVM guest whose
+  operator cannot update the platform TCB (`OutOfDateConfigurationNeeded`;
+  see [TCB_STATUS.md](TCB_STATUS.md)), and denies any platform affected by
+  another advisory, e.g. an older TCB level (INTEL-SA-00960) or a future
+  advisory Intel adds. A test checks the lists against the recorded TCB
+  Info (`fixtures/live/`). An accepted non-`UpToDate` platform is reported
+  with a warning naming the advisories and the TCB components that fall
+  short (`VerifiedQuote::platform_tcb_gap`). `--strict-tcb` restores
+  `UpToDate` only; `--allow-tcb-status` / `--allow-advisory` replace the
+  status / advisory allowlists, and `--any-advisory` drops the advisory
+  check. Accepting an out-of-date platform means trusting that the
+  allowlisted advisories are not exploited against it.
 * `Revoked` is a hard verifier error (`verify.rs`, `VerifyError::TcbRevoked`)
   that no policy can allow.
 * The QE's TCB status is merged with the platform's like Intel's QVL does

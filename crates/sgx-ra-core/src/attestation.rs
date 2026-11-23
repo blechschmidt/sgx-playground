@@ -279,6 +279,14 @@ pub enum PolicyViolation {
     },
     /// The platform's TCB status is not in the allowed set.
     TcbStatusNotAllowed(TcbStatus),
+    /// The platform is affected by an Intel advisory that is not in the
+    /// policy's advisory allowlist.
+    AdvisoryNotAllowed {
+        /// The platform's TCB status.
+        status: TcbStatus,
+        /// The first advisory not on the allowlist.
+        advisory_id: String,
+    },
 }
 
 impl fmt::Display for PolicyViolation {
@@ -299,6 +307,13 @@ impl fmt::Display for PolicyViolation {
                 write!(f, "ISVSVN {actual} is below the required minimum {minimum}")
             }
             Self::TcbStatusNotAllowed(s) => write!(f, "platform TCB status {s} is not allowed"),
+            Self::AdvisoryNotAllowed {
+                status,
+                advisory_id,
+            } => write!(
+                f,
+                "platform (TCB status {status}) is affected by {advisory_id}, which is not on the advisory allowlist"
+            ),
         }
     }
 }
@@ -310,6 +325,12 @@ impl core::error::Error for PolicyViolation {}
 /// Debug enclaves are always rejected and the enclave must be 64-bit; there
 /// is deliberately no switch to relax this. By default only the
 /// `UpToDate` TCB status is accepted.
+///
+/// The TCB check has two parts: the status must be in the allowed set
+/// ([`allow_tcb_status`](Self::allow_tcb_status)) and, once an advisory
+/// allowlist is set ([`allow_advisories`](Self::allow_advisories)), every
+/// Intel advisory the platform is affected by must be on it. Without an
+/// allowlist the advisories are not checked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnclavePolicy {
     mr_enclave: Measurement,
@@ -317,6 +338,7 @@ pub struct EnclavePolicy {
     isv_prod_id: Option<u16>,
     min_isv_svn: Option<u16>,
     allowed_tcb_statuses: TcbStatusSet,
+    allowed_advisories: Option<Vec<String>>,
 }
 
 impl EnclavePolicy {
@@ -328,6 +350,7 @@ impl EnclavePolicy {
             isv_prod_id: None,
             min_isv_svn: None,
             allowed_tcb_statuses: TcbStatusSet::up_to_date_only(),
+            allowed_advisories: None,
         }
     }
 
@@ -359,6 +382,26 @@ impl EnclavePolicy {
         self
     }
 
+    /// Restricts the accepted platforms to those whose Intel advisories
+    /// (`INTEL-SA-…`, compared case-insensitively) are all in `ids`.
+    /// Repeated calls extend the allowlist. Calling it with no IDs accepts
+    /// only platforms without any advisory.
+    #[must_use]
+    pub fn allow_advisories<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let list = self.allowed_advisories.get_or_insert_with(Vec::new);
+        for id in ids {
+            let id = id.into().to_ascii_uppercase();
+            if !list.contains(&id) {
+                list.push(id);
+            }
+        }
+        self
+    }
+
     /// The expected MRENCLAVE.
     pub fn mr_enclave(&self) -> Measurement {
         self.mr_enclave
@@ -382,6 +425,12 @@ impl EnclavePolicy {
     /// The accepted TCB statuses.
     pub fn allowed_tcb_statuses(&self) -> TcbStatusSet {
         self.allowed_tcb_statuses
+    }
+
+    /// The advisory allowlist (upper case), or `None` if advisories are not
+    /// checked.
+    pub fn allowed_advisories(&self) -> Option<&[String]> {
+        self.allowed_advisories.as_deref()
     }
 }
 
@@ -440,6 +489,17 @@ impl Policy for EnclavePolicy {
         }
         if !self.allowed_tcb_statuses.contains(claims.tcb_status()) {
             return Err(PolicyViolation::TcbStatusNotAllowed(claims.tcb_status()));
+        }
+        if let Some(allowed) = &self.allowed_advisories
+            && let Some(id) = claims
+                .advisory_ids()
+                .iter()
+                .find(|id| !allowed.iter().any(|a| a.eq_ignore_ascii_case(id)))
+        {
+            return Err(PolicyViolation::AdvisoryNotAllowed {
+                status: claims.tcb_status(),
+                advisory_id: id.clone(),
+            });
         }
         Ok(())
     }
@@ -544,6 +604,53 @@ mod tests {
             Some(TcbStatus::SwHardeningNeeded)
         );
         assert_eq!(TcbStatus::from_name("bogus"), None);
+    }
+
+    #[test]
+    fn advisory_allowlist() {
+        let quote = Quote::parse(QUOTE_V3).unwrap();
+        let claims = VerifiedClaims::new(
+            *quote.report_body(),
+            TcbStatus::OutOfDateConfigurationNeeded,
+            ["INTEL-SA-00657", "INTEL-SA-00615"]
+                .map(String::from)
+                .to_vec(),
+        );
+        let status_only =
+            fixture_policy().allow_tcb_status(TcbStatus::OutOfDateConfigurationNeeded);
+        // Without an allowlist only the status is checked.
+        assert_eq!(status_only.allowed_advisories(), None);
+        assert_eq!(status_only.check(&claims), Ok(()));
+        assert_eq!(
+            status_only
+                .clone()
+                .allow_advisories(["intel-sa-00615", "INTEL-SA-00657"])
+                .check(&claims),
+            Ok(())
+        );
+        assert_eq!(
+            status_only
+                .clone()
+                .allow_advisories(["INTEL-SA-00615"])
+                .check(&claims),
+            Err(PolicyViolation::AdvisoryNotAllowed {
+                status: TcbStatus::OutOfDateConfigurationNeeded,
+                advisory_id: "INTEL-SA-00657".into(),
+            })
+        );
+        // An empty allowlist admits only advisory-free platforms.
+        let none = status_only.allow_advisories(core::iter::empty::<String>());
+        assert_eq!(none.allowed_advisories(), Some(&[][..]));
+        assert!(none.check(&claims).is_err());
+        // The allowlist never widens the status set.
+        assert_eq!(
+            fixture_policy()
+                .allow_advisories(["INTEL-SA-00657", "INTEL-SA-00615"])
+                .check(&claims),
+            Err(PolicyViolation::TcbStatusNotAllowed(
+                TcbStatus::OutOfDateConfigurationNeeded
+            ))
+        );
     }
 
     #[test]

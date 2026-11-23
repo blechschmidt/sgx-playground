@@ -74,7 +74,7 @@ reach a PCCS on the host's `localhost` even if one is running.
   platform`) from `v4/pckcert` and `v4/pckcerts` without a key.
 * The host image ran on bridge networking with the keyless QCNL config (no
   PCCS reachable). `echo-client` verified the quote (PCK chain to the
-  pinned root, TCB Info, QE Identity, MRENCLAVE `bdd7e786…`, report_data
+  pinned root, TCB Info, QE Identity, MRENCLAVE `3f31f232…`, report_data
   binding) and exchanged encrypted echoes.
 * The public executor `sgx-playground.blechschmidt.io:443` was switched to
   the rebuilt image and wrapper, and its PCCS container was stopped

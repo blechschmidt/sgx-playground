@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use sgx_ra_client::sgx_ra_core::attestation::TcbStatus;
 use sgx_ra_client::sgx_ra_core::sgx::Measurement;
+use sgx_ra_client::sgx_ra_verifier::tcb;
 use sgx_ra_client::{ContainerEngine, INTEL_PCS_URL};
 
 /// The message sent when neither `--message` nor `--interactive` is given
@@ -166,13 +167,31 @@ pub struct PolicyArgs {
     /// SWHardeningNeeded, ConfigurationNeeded,
     /// ConfigurationAndSWHardeningNeeded, OutOfDate,
     /// OutOfDateConfigurationNeeded. Revoked can never be accepted.
-    /// Default: every status except Revoked, with a warning naming the
-    /// Intel advisories (the public executor is OutOfDateConfigurationNeeded).
+    /// Default: the statuses of current Ice Lake SP servers (SWHardeningNeeded,
+    /// ConfigurationAndSWHardeningNeeded, OutOfDate,
+    /// OutOfDateConfigurationNeeded; the public executor is
+    /// OutOfDateConfigurationNeeded), gated by the advisory allowlist.
     #[arg(long = "allow-tcb-status", value_name = "STATUS", value_parser = parse_tcb_status)]
     pub allowed_tcb_statuses: Vec<TcbStatus>,
 
+    /// Accept a non-UpToDate platform only if every Intel advisory it is
+    /// affected by is one of these (repeatable, e.g. INTEL-SA-00615).
+    /// Replaces the default allowlist: INTEL-SA-00615, -00657, -00767,
+    /// -01079, -01103, -01153 (Ice Lake SP since the 2024-03-13 TCB
+    /// recovery). Any other advisory is rejected.
+    #[arg(long = "allow-advisory", value_name = "ID", value_parser = parse_advisory_id)]
+    pub allowed_advisories: Vec<String>,
+
+    /// Do not check advisories; accept every allowed TCB status whatever
+    /// advisories apply.
+    #[arg(long, conflicts_with = "allowed_advisories")]
+    pub any_advisory: bool,
+
     /// Accept only platforms with TCB status UpToDate.
-    #[arg(long, conflicts_with = "allowed_tcb_statuses")]
+    #[arg(
+        long,
+        conflicts_with_all = ["allowed_tcb_statuses", "allowed_advisories", "any_advisory"]
+    )]
     pub strict_tcb: bool,
 }
 
@@ -182,12 +201,21 @@ impl PolicyArgs {
         if self.strict_tcb {
             Vec::new()
         } else if self.allowed_tcb_statuses.is_empty() {
-            TcbStatus::ALL
-                .into_iter()
-                .filter(|s| !matches!(s, TcbStatus::UpToDate | TcbStatus::Revoked))
-                .collect()
+            tcb::ICE_LAKE_SP_TCB_STATUSES.to_vec()
         } else {
             self.allowed_tcb_statuses.clone()
+        }
+    }
+
+    /// The advisory allowlist, or `None` if advisories are not checked
+    /// (`--any-advisory`; `--strict-tcb` admits UpToDate only anyway).
+    pub fn advisory_allowlist(&self) -> Option<Vec<String>> {
+        if self.strict_tcb || self.any_advisory {
+            None
+        } else if self.allowed_advisories.is_empty() {
+            Some(tcb::ICE_LAKE_SP_ADVISORIES.map(String::from).to_vec())
+        } else {
+            Some(self.allowed_advisories.clone())
         }
     }
 }
@@ -290,6 +318,16 @@ fn parse_tcb_status(s: &str) -> Result<TcbStatus, String> {
     }
 }
 
+fn parse_advisory_id(s: &str) -> Result<String, String> {
+    let id = s.trim().to_ascii_uppercase();
+    match id.strip_prefix("INTEL-SA-") {
+        Some(n) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => Ok(id),
+        _ => Err(format!(
+            "{s:?} is not an Intel advisory ID like INTEL-SA-00615"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,13 +352,32 @@ mod tests {
         assert!(c.measurement.expected_mrenclave.is_none());
         assert!(c.messages.is_empty() && !c.interactive);
         assert!(!c.transport.insecure_tls && !c.transport.plaintext);
-        // Everything but Revoked, so the public executor's
-        // OutOfDateConfigurationNeeded platform is accepted.
+        // Allowlists that admit the public executor's
+        // OutOfDateConfigurationNeeded platform and nothing else.
         let tcb = c.policy.tcb_statuses();
         assert!(tcb.contains(&TcbStatus::OutOfDateConfigurationNeeded));
         assert!(!tcb.contains(&TcbStatus::Revoked));
+        assert!(!tcb.contains(&TcbStatus::ConfigurationNeeded));
+        let advisories = c.policy.advisory_allowlist().unwrap();
+        assert_eq!(advisories.len(), 6);
+        assert!(advisories.contains(&"INTEL-SA-00615".to_owned()));
         let strict = Cli::try_parse_from(["echo-client", "--strict-tcb"]).unwrap();
         assert!(strict.connect.policy.tcb_statuses().is_empty());
+        assert_eq!(strict.connect.policy.advisory_allowlist(), None);
+        let any = Cli::try_parse_from(["echo-client", "--any-advisory"]).unwrap();
+        assert_eq!(any.connect.policy.advisory_allowlist(), None);
+        let own = Cli::try_parse_from([
+            "echo-client",
+            "--allow-advisory",
+            "intel-sa-00615",
+            "--allow-advisory",
+            "INTEL-SA-00657",
+        ])
+        .unwrap();
+        assert_eq!(
+            own.connect.policy.advisory_allowlist().unwrap(),
+            ["INTEL-SA-00615", "INTEL-SA-00657"]
+        );
     }
 
     #[test]
@@ -344,6 +401,21 @@ mod tests {
                 "--strict-tcb",
                 "--allow-tcb-status",
                 "OutOfDate",
+            ],
+            &["echo-client", "--allow-advisory", "CVE-2022-21233"],
+            &["echo-client", "--allow-advisory", "INTEL-SA-"],
+            &["echo-client", "--strict-tcb", "--any-advisory"],
+            &[
+                "echo-client",
+                "--strict-tcb",
+                "--allow-advisory",
+                "INTEL-SA-00615",
+            ],
+            &[
+                "echo-client",
+                "--any-advisory",
+                "--allow-advisory",
+                "INTEL-SA-00615",
             ],
         ] {
             assert!(Cli::try_parse_from(args).is_err(), "{args:?}");

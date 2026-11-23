@@ -29,9 +29,12 @@ attests the enclave behind `sgx-playground.blechschmidt.io:443` against
 that MRENCLAVE and exchanges a message over the attested channel. The
 public executor runs the Rust host and echo enclave on real SGX hardware.
 It is a KVM guest whose platform TCB status is
-`OutOfDateConfigurationNeeded`. The client accepts every status except
-`Revoked` by default and prints a warning naming the Intel advisories.
-It also lists the TCB components that fall short and who can fix them.
+`OutOfDateConfigurationNeeded`. By default the client accepts a
+non-`UpToDate` platform only through two explicit allowlists: TCB statuses
+(those of current Ice Lake SP servers) and Intel advisory IDs
+(INTEL-SA-00615, -00657, -00767, -01079, -01103, -01153). Any other
+advisory is rejected. It warns with the advisories and lists the TCB
+components that fall short and who can fix them.
 That status is set by the physical host's BIOS and microcode, which the VM
 can't change ([TCB_STATUS.md](docs/TCB_STATUS.md)).
 Pass `--strict-tcb` to accept only `UpToDate` platforms.
@@ -191,7 +194,7 @@ end-to-end test run against the real host (see
 
 | | |
 |-|-|
-| **MRENCLAVE** | `bdd7e7862557e60ed2db5c01aa6bc46f6ede0483209fa39680caf7b889a09263` |
+| **MRENCLAVE** | `3f31f2322a4e22e136b60bc620b0de75e2c50737699f8d8b9e3af11da67aa3af` |
 | MRSIGNER (published key, carries no trust) | `8b1beba60b7c004561b8eb5e8384ff03f988e3914e5c845ee3362b786b34efa6` |
 | ProdID / ISVSVN / debug | 1 / 1 / disabled |
 

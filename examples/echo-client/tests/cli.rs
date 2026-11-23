@@ -294,6 +294,39 @@ fn verified_quote_out_of_date_platform_is_rejected_with_strict_tcb() {
 }
 
 #[test]
+fn advisory_outside_the_allowlist_is_rejected() {
+    if !collateral_still_valid() {
+        return;
+    }
+    // The recorded platform is at a 2022 TCB level whose advisories go beyond
+    // the default (Ice Lake SP, 2024-03-13 and later) allowlist: allowing
+    // its status alone is not enough.
+    let url = pccs();
+    let port = executor(QUOTE_V3);
+    let out = echo_client(&[
+        "--host",
+        "127.0.0.1",
+        "--port",
+        &port.to_string(),
+        "--plaintext",
+        "--expected-mrenclave",
+        QUOTE_MRENCLAVE,
+        "--pccs-url",
+        &url,
+        "--allow-tcb-status",
+        "OutOfDate",
+    ]);
+    let (stdout, stderr) = text(&out);
+    assert_eq!(out.status.code(), Some(1), "{stdout}\n{stderr}");
+    assert!(
+        stderr.contains(
+            "[FAIL] Policy rejected the enclave: platform (TCB status OutOfDate) is affected by INTEL-SA-"
+        ) && stderr.contains("not on the advisory allowlist"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn verified_quote_without_key_binding_is_rejected() {
     if !collateral_still_valid() {
         return;
@@ -314,6 +347,7 @@ fn verified_quote_without_key_binding_is_rejected() {
         &url,
         "--allow-tcb-status",
         "OutOfDate",
+        "--any-advisory",
         "--isv-prod-id",
         "1",
         "--min-isv-svn",

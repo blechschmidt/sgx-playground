@@ -37,9 +37,14 @@ Every failure prints `[FAIL] …` on stderr and exits non-zero.
 * `--pccs-url URL`: Intel PCS by default. A PCCS such as
   `http://127.0.0.1:8080` also works; collateral is always verified.
   `--pccs-ca PEM` sets the CA for an HTTPS PCCS.
-* `--strict-tcb` (only `UpToDate`; the default accepts every TCB status
-  except `Revoked`, with a warning), `--allow-tcb-status STATUS`
-  (repeatable: `UpToDate` plus these), `--mrsigner`,
+* TCB policy: by default `UpToDate` plus `SWHardeningNeeded`,
+  `ConfigurationAndSWHardeningNeeded`, `OutOfDate` and
+  `OutOfDateConfigurationNeeded`, and only if every Intel advisory of the
+  platform is on the allowlist (INTEL-SA-00615, -00657, -00767, -01079,
+  -01103, -01153; anything else is rejected). `--allow-tcb-status STATUS`
+  (repeatable: `UpToDate` plus these), `--allow-advisory ID` (repeatable;
+  replaces the advisory allowlist), `--any-advisory` (no advisory check),
+  `--strict-tcb` (only `UpToDate`). Also `--mrsigner`,
   `--isv-prod-id`, `--min-isv-svn`, `--collateral-grace SECONDS`.
 * `--insecure-tls` (accept any TLS certificate; TLS is not trusted),
   `--tls-ca PEM`, and `--plaintext` (for a local `echo-host-app --listen`).
@@ -55,7 +60,8 @@ Every failure prints `[FAIL] …` on stderr and exits non-zero.
 `sgx-playground.blechschmidt.io:443` runs this echo enclave on real SGX
 hardware, and `echo-client` without arguments attests it and echoes a
 message. Its platform TCB status is `OutOfDateConfigurationNeeded`, which
-the default policy accepts with a warning (`--strict-tcb` rejects it). The
+the default policy accepts with a warning because both the status and all
+of its advisories are allowlisted (`--strict-tcb` rejects it). The
 client also prints which TCB components fall short; see
 [TCB_STATUS.md](../../docs/TCB_STATUS.md). If
 the executor's PCCS is down, it sends `[QCNL] Error: …` instead of a
