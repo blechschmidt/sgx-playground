@@ -46,10 +46,24 @@ jobs:
           log="$RUNNER_TEMP/echo-client.log"
           # Defaults: Dockerfile containers/Dockerfile.nix-build, verified
           # TLS, Intel PCS collateral, the Ice Lake SP TCB/advisory policy.
-          target/debug/echo-client --build-output "$RUNNER_TEMP/enclave" \
-            -m "Hello, SGX server!" \
-            -m "Hello from GitHub Actions run $GITHUB_RUN_ID ($GITHUB_SHA)" \
-            2>&1 | tee "$log"
+          # Only a failed build is retried (download.01.org intermittently
+          # fails to resolve inside the build container on the runners);
+          # any verification or channel failure fails the job at once.
+          for attempt in 1 2 3; do
+            rm -rf "$RUNNER_TEMP/enclave"
+            status=0
+            target/debug/echo-client --build-output "$RUNNER_TEMP/enclave" \
+              -m "Hello, SGX server!" \
+              -m "Hello from GitHub Actions run $GITHUB_RUN_ID ($GITHUB_SHA)" \
+              2>&1 | tee "$log" || status=$?
+            test "$status" -eq 0 && break
+            if [ "$attempt" -lt 3 ] && grep -qF '[FAIL] Reproducible build failed' "$log"; then
+              echo "::warning::reproducible build failed (attempt $attempt), retrying"
+              sleep 60
+            else
+              exit "$status"
+            fi
+          done
           for line in \
             "[OK] Quote signature over header and enclave report verified" \
             "is identical to the local build" \
@@ -68,13 +82,26 @@ jobs:
             grep -E '^\[(OK|WARN|FAIL)\]|TCB|Reply received' "$log" || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Man-in-the-middle tests (substituted key, tampered records, modified source)
+      - name: Man-in-the-middle tests (substituted key, tampered records)
         env:
           SGX_RA_E2E_TRANSPORT: tls
         run: |
           SGX_RA_E2E_GENDATA="$RUNNER_TEMP/enclave/out/enclave.so.gendata" \
             cargo test --locked -p echo-client --test e2e -- \
-            --ignored --test-threads 1 live_
+            --ignored --test-threads 1 live_ --skip live_modified_enclave_source_is_rejected
+      - name: A modified enclave source is rejected by the live executor
+        env:
+          SGX_RA_E2E_TRANSPORT: tls
+        # Builds the modified source: retried like the build above.
+        run: |
+          set -eu
+          for attempt in 1 2 3; do
+            cargo test --locked -p echo-client --test e2e -- \
+              --ignored --exact live_modified_enclave_source_is_rejected --nocapture && exit 0
+            test "$attempt" -lt 3
+            echo "::warning::attempt $attempt failed, retrying"
+            sleep 60
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

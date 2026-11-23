@@ -134,9 +134,17 @@ jobs:
       - name: A modified enclave source changes MRENCLAVE and the client refuses it
         env:
           SGX_RA_E2E_GENDATA: target/nix-enclave/enclave/enclave.so.gendata
-        run: >
-          cargo test --locked -p echo-client --test e2e --
-          --ignored --exact modified_enclave_source_changes_mrenclave --nocapture
+        # Builds the modified source in the Nix container: retried like
+        # the reproducible builds.
+        run: |
+          set -eu
+          for attempt in 1 2 3; do
+            cargo test --locked -p echo-client --test e2e -- \
+              --ignored --exact modified_enclave_source_changes_mrenclave --nocapture && exit 0
+            test "$attempt" -lt 3
+            echo "::warning::attempt $attempt failed, retrying"
+            sleep 60
+          done
       - name: Build the SGX SDK image (blueprint) and the simulation enclave
         run: |
           set -eu
