@@ -1,0 +1,22 @@
+[package]
+name = "echo-enclave"
+description = "Example enclave: echoes every request over the attested channel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# staticlib: linked with the SGX SDK trusted runtime into enclave.so (task 4).
+# rlib: lets host-side unit tests exercise the application logic.
+crate-type = ["staticlib", "rlib"]
+# The non-test build is no_std and needs panic=abort, which Cargo does not
+# apply to the test profile; doctests would force that build under `cargo test`.
+doctest = false
+
+[dependencies]
+sgx-ra-enclave = { workspace = true }
+
+[lints]
+workspace = true

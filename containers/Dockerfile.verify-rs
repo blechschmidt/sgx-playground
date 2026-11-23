@@ -1,0 +1,28 @@
+# The Rust client (examples/echo-client) for `docker compose run verify-rs`.
+#
+# The client verifies; it is not attested itself, so this image does not
+# need to be bit-for-bit reproducible. What it compares against is: the
+# expected MRENCLAVE comes from the reproducible enclave build (the
+# nix-build service, containers/Dockerfile.nix-build), mounted at /enclave.
+# Outside of compose, `echo-client` runs that build itself.
+#
+#   docker build -f containers/Dockerfile.verify-rs -t sgx-ra-verify-rs .
+
+FROM docker.io/library/rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY .cargo/config.toml .cargo/config.toml
+COPY crates crates
+COPY examples examples
+# rust-toolchain.toml pins the same compiler as the enclave build.
+RUN cargo build --release --locked -p echo-client \
+    && install -D target/release/echo-client /out/echo-client
+
+FROM docker.io/library/debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
+COPY --from=build /out/echo-client /usr/local/bin/echo-client
+COPY containers/verify-rs-entrypoint.sh /usr/local/bin/verify-rs
+# The checkout's file modes may be private (umask 077).
+RUN chmod 0755 /usr/local/bin/verify-rs /usr/local/bin/echo-client
+# TLS roots are compiled in (webpki-roots); no CA bundle needed.
+USER 65534:65534
+ENTRYPOINT ["/usr/local/bin/verify-rs"]

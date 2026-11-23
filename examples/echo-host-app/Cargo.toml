@@ -1,0 +1,19 @@
+[package]
+name = "echo-host-app"
+description = "Example untrusted host: loads the echo enclave and serves the remote executor protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Off by default so `cargo build --workspace` works without the SGX SDK; the
+# Nix build (`nix build .#host-app`) enables it.
+sgx = ["dep:sgx-ra-host", "sgx-ra-host/sgx"]
+
+[dependencies]
+sgx-ra-host = { workspace = true, optional = true }
+
+[lints]
+workspace = true

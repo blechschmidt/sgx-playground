@@ -1,28 +1,81 @@
 @startuml sequence
+' Remote attestation with key binding (SGXRA v1).
+' Spec: docs/PROTOCOL.md (layer 1: §2, key binding: §6.2, handshake: §6.4).
+' Render: plantuml -tsvg extra/sequence.wsd
 hide footbox
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 260
 
-'participant and actor definitions
+actor "Client\n(echo-client / sgx-ra-client)" as C
+participant "Intel PCS or PCCS\n(untrusted transport)" as PCS
 
-actor Verifier as V
-
-box "Remote Backend" #LightGray
-  participant "Server Application" as SA
-  participant "Server Application Enclave" as AE
-  participant "Server Quoting Enclave" as QE
+box "Remote backend (operator: untrusted)" #LightGray
+  participant "stunnel :443\n+ host app" as H
+  participant "Quoting Enclave\n(QE3 / PCE)" as QE
 end box
 
-'sequence of interactions
+box "Trusted" #LightGreen
+  participant "Application enclave\n(sgx-ra-enclave + EnclaveApp)" as E
+end box
 
-V -> V:   reproducibly compile code\nof application enclave\nto obtain MRENCLAVE
-V -> SA:  establish a TLS tunnel
-SA -> SA: find quoting enclave identity\n(requires PCCS on the server)
-SA -> AE**: instantiate from\nsigned *.so file
-SA -> AE: request application report
-AE -> AE: generate application\nreport (EREPORT)
-AE --> SA: return report
-SA -> QE: request quote generation for application report
-QE -> QE: generate quote
-QE --> SA: return quote
-SA -> V:  forward quote
-V -> V:  verify quote through PCCS
+== 1. Expected measurement (local, trusted) ==
+C -> C: docker build containers/Dockerfile.nix-build\n(pinned Nix: nix build .#enclave)
+C -> C: M_local = MRENCLAVE from enclave.so.gendata\n(cross-checked with MRENCLAVE.txt)
+C -> C: policy = EnclavePolicy(M_local)\n[+ MRSIGNER, ISVPRODID, min ISVSVN, TCB statuses]
+
+== 2. Quote with the key commitment ==
+C -> H: TCP / TLS connect (transport only; TLS ends outside the enclave)
+H -> QE: sgx_qe_get_target_info
+H -> E **: sgx_create_enclave(enclave.signed.so)
+H -> E: ECALL enclave_create_report(qe_target)
+activate E
+E -> E: EK = (ek_sk, ek_pub) <- X25519 keygen (sgx_read_rand)\nek_sk never leaves enclave memory
+E -> E: report_data = SHA-256("SGXRA-v1/report-data" || 00 || 01 || ek_pub) || 0^32
+E -> E: EREPORT(qe_target, report_data)\nkeep rb_hash = SHA-256(report_body)
+E --> H: report (MRENCLAVE, attributes, ..., report_data)
+deactivate E
+H -> QE: sgx_qe_get_quote(report)
+QE -> QE: verify report (EREPORT key)\nsign with attestation key (certified by PCK)
+QE --> H: DCAP v3 quote
+H -> C: u32 len || quote
+
+== 3. Quote verification (client) ==
+C -> PCS: PCK CRL, TCB Info, QE Identity (+ CRLs)
+PCS --> C: collateral
+C -> C: PCK chain -> pinned Intel SGX Root CA; CRLs\nTCB Info + QE Identity signatures; QE report; quote signature
+C -> C: baseline: not DEBUG, 64-bit\npolicy: MRENCLAVE == M_local, TCB status allowed, ...
+note right of C
+  Now trusted: report_data was produced
+  by code with MRENCLAVE == M_local.
+  ek_pub itself is not known yet.
+end note
+
+== 4. Handshake bound to report_data ==
+C -> C: c_sk, c_pub <- keygen; c_nonce <- random
+C -> H: HELLO(c_pub, c_nonce)
+H -> E: ECALL enclave_message(HELLO)
+activate E
+E -> E: se_sk, se_pub <- keygen; s_nonce <- random
+E -> E: th = SHA-256("SGXRA-v1/transcript" || rb_hash || c_pub || c_nonce || ek_pub || se_pub || s_nonce)\nkeys = HKDF(salt = th, DH(ek_sk, c_pub) || DH(se_sk, c_pub))\nconfirm = HMAC(k_conf, "SGXRA-v1/enclave-confirm" || th)
+E --> H: HELLO_REPLY(ek_pub, se_pub, s_nonce, confirm)
+deactivate E
+H -> C: HELLO_REPLY
+C -> C: **key binding:** SHA-256("SGXRA-v1/report-data" || 00 || 01 || ek_pub) || 0^32\nmust equal the attested report_data (all 64 bytes, constant time)
+C -> C: derive th, keys with DH(c_sk, ek_pub) || DH(c_sk, se_pub)\ncheck confirm => peer holds ek_sk => peer is the attested enclave
+note over C, E
+  A substituted ek_pub fails the binding check. A relayed ek_pub without ek_sk
+  fails key confirmation. The host only ever sees public keys and ciphertext.
+end note
+
+== 5. Confidential channel ==
+loop requests
+  C -> H: RECORD(seq, ChaCha20-Poly1305(k_c2e, request))
+  H -> E: ECALL enclave_message(RECORD)
+  activate E
+  E -> E: open -> EnclaveApp::handle -> seal
+  E --> H: RECORD(seq, ChaCha20-Poly1305(k_e2c, response))
+  deactivate E
+  H -> C: RECORD
+  C -> C: open (strict sequence numbers)
+end
 @enduml

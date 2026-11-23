@@ -1,0 +1,27 @@
+[package]
+name = "sealing-enclave"
+description = "Example enclave: sealing and a persistent, pinnable long-term identity key"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# staticlib: linked into enclave.so with enclave-sys/sealed-storage/Enclave.edl.
+# rlib: host-side unit tests of the dispatch logic.
+crate-type = ["staticlib", "rlib"]
+doctest = false
+
+[features]
+# Seal the long-term identity to MRSIGNER instead of MRENCLAVE (see
+# docs/SEALING.md). Changes MRENCLAVE. Refused at runtime when the enclave is
+# signed with the published reproducible-build key.
+mrsigner-identity = []
+
+[dependencies]
+sgx-ra-enclave = { workspace = true, features = ["sealed-storage"] }
+sealing-protocol = { workspace = true }
+
+[lints]
+workspace = true

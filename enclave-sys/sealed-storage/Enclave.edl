@@ -1,0 +1,39 @@
+/*
+ * The framework EDL (../Enclave.edl: the blueprint ECALLs, unchanged and
+ * with the same ECALL numbers) plus the sealed-storage OCALLs.
+ *
+ * Enclaves using sgx_ra_enclave::storage::OcallStorage (cargo feature
+ * `sealed-storage`) are linked with this file; `sgx-ra-host` builds its
+ * untrusted bridge from it by default, so one host binary serves enclaves of
+ * either EDL. The host only ever sees sealed (encrypted, authenticated)
+ * blobs. Contract and status codes: sgx_ra_core::storage; security
+ * discussion: docs/SEALING.md.
+ *
+ * Both OCALLs return a StorageStatus code. Buffers are marshalled by the
+ * bridge: `p_blob` of the load is copied back into the enclave (all
+ * `capacity` bytes) after the host returns, and the enclave then checks
+ * `*p_blob_len <= capacity` itself.
+ *
+ * edger8r does not carry `include`s over from imported files; repeat them.
+ */
+enclave {
+    include "sgx_report.h"
+
+    from "Enclave.edl" import *;
+
+    untrusted {
+        uint32_t sgx_ra_ocall_load_sealed(
+            [in, count=32] const uint8_t* p_namespace,
+            uint32_t slot,
+            [out, size=capacity] uint8_t* p_blob,
+            size_t capacity,
+            [out] size_t* p_blob_len);
+
+        uint32_t sgx_ra_ocall_store_sealed(
+            [in, count=32] const uint8_t* p_namespace,
+            uint32_t slot,
+            [in, size=blob_len] const uint8_t* p_blob,
+            size_t blob_len,
+            uint32_t replace);
+    };
+};

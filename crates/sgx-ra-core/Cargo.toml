@@ -1,0 +1,25 @@
+[package]
+name = "sgx-ra-core"
+description = "no_std shared types for SGX remote attestation: DCAP quote and SIGSTRUCT parsing, wire framing, handshake messages and the framework traits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sha2 = { workspace = true }
+x25519-dalek = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+chacha20poly1305 = { workspace = true }
+subtle = { workspace = true }
+zeroize = { workspace = true }
+
+[features]
+# Portable SHA-2 without CPUID-based detection, for enclave builds (see
+# .cargo/config.toml for the matching cfgs of the other crypto crates).
+force-soft = ["sha2/force-soft"]
+
+[lints]
+workspace = true

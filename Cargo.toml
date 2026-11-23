@@ -1,0 +1,80 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/sgx-ra-core",
+    "crates/sgx-ra-enclave",
+    "crates/sgx-ra-host",
+    "crates/sgx-ra-verifier",
+    "crates/sgx-ra-client",
+    "examples/echo-enclave",
+    "examples/echo-host-app",
+    "examples/echo-client",
+    "examples/sealing-protocol",
+    "examples/sealing-enclave",
+    "examples/sealing-client",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+sgx-ra-core = { path = "crates/sgx-ra-core" }
+sgx-ra-enclave = { path = "crates/sgx-ra-enclave" }
+sgx-ra-host = { path = "crates/sgx-ra-host" }
+sgx-ra-verifier = { path = "crates/sgx-ra-verifier" }
+sgx-ra-client = { path = "crates/sgx-ra-client" }
+sealing-protocol = { path = "examples/sealing-protocol" }
+sha2 = { version = "0.10.9", default-features = false }
+# Host-only build dependency: compiles the edger8r ECALL bridge (Enclave_u.c)
+# for sgx-ra-host. Never linked into an enclave.
+cc = "1.11"
+# Channel crypto (docs/PROTOCOL.md §6.1). Exact pins: these crates are linked
+# into the enclave, so any version change changes MRENCLAVE. All are used
+# without default features (no std, no getrandom: randomness comes from the
+# framework's `Rng`).
+x25519-dalek = { version = "=2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
+hkdf = { version = "=0.12.4", default-features = false }
+hmac = { version = "=0.12.1", default-features = false }
+chacha20poly1305 = { version = "=0.10.1", default-features = false }
+subtle = { version = "=2.6.1", default-features = false }
+zeroize = { version = "=1.8.1", default-features = false }
+# Client-side DCAP verification (sgx-ra-verifier / sgx-ra-client). Never
+# linked into the enclave.
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "pkcs8"] }
+x509-parser = { version = "0.18.1", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
+ureq = { version = "3.1", default-features = false, features = ["rustls"] }
+# Client transport: TLS to the executor's stunnel (untrusted pipe, see
+# docs/PROTOCOL.md §1) and the example CLI.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1.0.12"
+log = "0.4"
+getrandom = "0.2.17"
+clap = { version = "4.5", features = ["derive"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+# The enclave is a no_std staticlib: unwinding is unavailable, so every
+# profile aborts on panic. (Cargo ignores `panic` for test/bench profiles.)
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+incremental = false

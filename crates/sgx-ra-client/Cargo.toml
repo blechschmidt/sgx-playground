@@ -1,0 +1,20 @@
+[package]
+name = "sgx-ra-client"
+description = "Host-side client library of the sgx-ra framework: measurement sources, transport, attested channel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sgx-ra-core = { workspace = true }
+sgx-ra-verifier = { workspace = true }
+ureq = { workspace = true }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
+log = { workspace = true }
+getrandom = { workspace = true }
+
+[lints]
+workspace = true

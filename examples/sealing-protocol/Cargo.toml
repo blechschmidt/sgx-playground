@@ -1,0 +1,14 @@
+[package]
+name = "sealing-protocol"
+description = "Messages of the sealing example (shared by sealing-enclave and sealing-client)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sgx-ra-core = { workspace = true }
+
+[lints]
+workspace = true

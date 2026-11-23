@@ -1,0 +1,50 @@
+# cargo deny check: advisories, licenses, bans, sources (CI job `deny`).
+
+[graph]
+# The enclave is built for x86_64-unknown-none, everything else for Linux.
+targets = ["x86_64-unknown-linux-gnu", "x86_64-unknown-none"]
+all-features = true
+
+[advisories]
+# Keep in sync with .cargo/audit.toml.
+ignore = [
+    # crypto-bigint 0.5.5 timing variability, via p256 0.13 (client-side
+    # DCAP verification only, never in the enclave). The client only
+    # *verifies* ECDSA signatures over public data (quotes, Intel
+    # certificates, collateral); it holds no P-256 secret, so
+    # secret-dependent timing cannot leak anything. Remove with the move to
+    # p256 0.14 (crypto-bigint 0.7).
+    { id = "RUSTSEC-2026-0387", reason = "verification of public data only; no P-256 secrets in the client" },
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    # webpki-roots (Mozilla's root store data).
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Workspace crates are `publish = false`.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+# Nothing in the trust chain may pull in OpenSSL.
+deny = [
+    { crate = "openssl" },
+    { crate = "openssl-sys" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

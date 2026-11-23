@@ -1,0 +1,5 @@
+[QCNL] Error:  Encountered CURL error: (7) Couldn't connect to server 
+[QPL] Error: Failed to get quote config. Error code is 0xb006
+Error: [get_platform_quote_cert_data ../qe_logic.cpp:388] Error returned from the p_sgx_get_quote_config API. 0xe019
+Error: [sgx_qe_get_target_info ../sgx_dcap_ql_wrapper.cpp:374] Error in sgx_ql_init_quote. 0xe019
+Error in sgx_qe_get_target_info. 0xe019

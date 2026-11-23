@@ -1,0 +1,75 @@
+# Reproducible enclave build: runs `nix build .#enclave` (flake.nix) in a
+# digest-pinned Nix image and puts the artifacts into /out of the final
+# (scratch) image:
+#
+#   /out/enclave.signed.so   loadable enclave (signed with the published key)
+#   /out/enclave.so          unsigned image
+#   /out/enclave.so.gendata  SIGSTRUCT signing material
+#   /out/MRENCLAVE.txt       measurement clients pin
+#   /out/MRSIGNER.txt
+#   /out/SHA256SUMS
+#
+# Usage (from the repository root; works with and without BuildKit):
+#   scripts/nix-build-enclave.sh            # build + extract to target/nix-enclave
+#   scripts/nix-build-enclave.sh --verify   # two clean builds, bitwise diff
+# or by hand:
+#   docker build -f containers/Dockerfile.nix-build -t sgx-ra-enclave .
+#   docker create --name e sgx-ra-enclave x && docker cp e:/out ./out && docker rm e
+#   DOCKER_BUILDKIT=1 docker build -f containers/Dockerfile.nix-build --output type=local,dest=out .
+#
+# Everything that reaches the enclave is pinned by hash: this base image
+# (digest), nixpkgs/crane/fenix (flake.lock), the Rust toolchain (channel
+# manifest sha256), Intel SGX SDK 2.26 (sha256), every crate (Cargo.lock
+# checksums). Store paths that nixpkgs provides are fetched from
+# cache.nixos.org, addressed by their derivation hash and signature-checked;
+# pass --build-arg NIX_SUBSTITUTE=false to build the whole toolchain from
+# source instead (hours) and still get the same bits.
+
+FROM docker.io/nixos/nix:2.36.0@sha256:746280551ddc1c72177d1a597c05eacac86dfaa18d5d649bf86411278bcd5470 AS build
+
+# Flake attribute to build: any `mkEnclave` output of flake.nix, or another
+# package such as `host-app-image` (then /out holds the image tarball, see
+# scripts/nix-build-host-image.sh).
+ARG ENCLAVE=enclave
+# Where the sources are copied. Irrelevant to the result: the flake is
+# copied into the Nix store and the build remaps its own paths. Exposed so
+# the reproducibility check can vary it.
+ARG SRC_DIR=/src
+ARG NIX_SUBSTITUTE=true
+
+# Nix's build sandbox needs namespaces that an unprivileged `docker build`
+# does not grant; the container is the isolation boundary instead. The
+# derivations are pure regardless (fixed inputs, no network outside
+# fixed-output fetches), which the two-build check verifies.
+RUN printf '%s\n' \
+        'experimental-features = nix-command flakes' \
+        'sandbox = false' \
+        "substitute = ${NIX_SUBSTITUTE}" \
+        'max-jobs = auto' \
+    >> /etc/nix/nix.conf
+
+WORKDIR ${SRC_DIR}
+# Only the build inputs (the flake's fileset), so unrelated edits do not
+# invalidate the layer cache.
+COPY flake.nix flake.lock Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY .cargo/config.toml .cargo/config.toml
+COPY nix nix
+COPY crates crates
+COPY examples examples
+COPY enclave-sys enclave-sys
+
+RUN set -eu; \
+    out_path="$(nix build ".#${ENCLAVE}" --print-build-logs --no-link --print-out-paths)"; \
+    mkdir /out; \
+    if [ -d "$out_path" ]; then cp -r "$out_path"/* /out/; else cp "$out_path" /out/; fi; \
+    cd /out; \
+    if [ -f SHA256SUMS ]; then sha256sum -c SHA256SUMS; fi; \
+    if [ -f MRENCLAVE.txt ]; then echo "MRENCLAVE $(cat MRENCLAVE.txt)"; fi; \
+    ls -l /out; \
+    # Only /out reaches the final image. Dropping the store in this same
+    # step keeps the committed layer small (several GB otherwise), which
+    # matters for the classic builder used by clients without buildx.
+    nix-collect-garbage >/dev/null 2>&1 || true
+
+FROM scratch
+COPY --from=build /out /out

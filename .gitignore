@@ -1,0 +1,7 @@
+/target
+/.scratch
+/.cloop
+# Cargo.lock is intentionally tracked (reproducible builds).
+/result
+/result-*
+/out

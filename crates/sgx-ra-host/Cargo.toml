@@ -1,0 +1,25 @@
+[package]
+name = "sgx-ra-host"
+description = "Untrusted host-side library of the sgx-ra framework (enclave loading, quoting, layer-1 serving)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# The real SGX backend: links libsgx_urts (or libsgx_urts_sim with
+# SGX_MODE=SIM), compiles the edger8r ECALL bridge and loads
+# libsgx_dcap_ql at runtime. Needs the Intel SGX SDK at build time
+# (SGX_SDK, see build.rs). Without it the crate is the hardware-free serving
+# logic only, which is what the workspace tests use.
+sgx = ["dep:cc"]
+
+[dependencies]
+sgx-ra-core = { workspace = true }
+
+[build-dependencies]
+cc = { workspace = true, optional = true }
+
+[lints]
+workspace = true

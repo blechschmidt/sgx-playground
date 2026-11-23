@@ -1,0 +1,24 @@
+<!--
+  Enclave metadata for every sgx-ra enclave. The layout values (stack, heap,
+  TCS) are measured and therefore feed MRENCLAVE; ProdID/ISVSVN and the
+  attribute policy go into SIGSTRUCT. Changing anything here changes the
+  identity clients pin (docs/PROTOCOL.md §3.4).
+
+  Differences to the blueprint (sgx-playground/server/Enclave):
+  * DisableDebug = 1: the signed image refuses to launch in debug mode, so
+    the operator cannot read enclave memory through a debug launch
+    (docs/PROTOCOL.md §4.2). The verifier still rejects DEBUG quotes.
+  * ProdID = 1, ISVSVN = 1: distinguishes framework enclaves from the
+    blueprint C++ enclave (ProdID 0). Bump ISVSVN on security fixes.
+-->
+<EnclaveConfiguration>
+  <ProdID>1</ProdID>
+  <ISVSVN>1</ISVSVN>
+  <StackMaxSize>0x40000</StackMaxSize>
+  <HeapMaxSize>0x100000</HeapMaxSize>
+  <TCSNum>1</TCSNum>
+  <TCSPolicy>1</TCSPolicy>
+  <DisableDebug>1</DisableDebug>
+  <MiscSelect>0</MiscSelect>
+  <MiscMask>0xFFFFFFFF</MiscMask>
+</EnclaveConfiguration>

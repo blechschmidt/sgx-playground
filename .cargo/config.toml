@@ -1,0 +1,13 @@
+# Enclave code must not use CPUID-based runtime feature detection (CPUID
+# raises #UD inside SGX) and cannot use SIMD backends on the soft-float
+# bare-metal target (LLVM fails to lower poly1305's AVX2 code there). These
+# cfgs select the portable backends of the channel crypto
+# (docs/PROTOCOL.md §6.1). They apply only to the bare-metal target, never
+# to host or client builds. SHA-2 is switched by the `force-soft` feature of
+# sgx-ra-core, which sgx-ra-enclave enables.
+[target.x86_64-unknown-none]
+rustflags = [
+    "--cfg", "chacha20_force_soft",
+    "--cfg", "poly1305_force_soft",
+    "--cfg", 'curve25519_dalek_backend="serial"',
+]

@@ -1,0 +1,10 @@
+# Pinned toolchain. The reproducible Nix build (task 5) must use exactly this
+# version, because the compiler version feeds into enclave.so and therefore
+# into MRENCLAVE.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+# x86_64-unknown-none: the bare-metal target the no_std enclave staticlib is
+# compiled for (see .cargo/config.toml).
+targets = ["x86_64-unknown-linux-gnu", "x86_64-unknown-none"]

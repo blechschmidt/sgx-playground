@@ -1,0 +1,27 @@
+[package]
+name = "sgx-ra-verifier"
+description = "DCAP quote verification for the sgx-ra framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sgx-ra-core = { workspace = true }
+sha2 = { workspace = true }
+p256 = { workspace = true }
+x509-parser = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+subtle = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Synthetic Intel-like PKI for negative tests (revocation, foreign roots,
+# QE identity mismatches) that cannot be produced from recorded collateral.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+p256 = { workspace = true, features = ["pem"] }

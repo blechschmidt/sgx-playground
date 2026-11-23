@@ -1,0 +1,6 @@
+# cargo audit configuration (CI job `audit`). Keep in sync with deny.toml.
+[advisories]
+# crypto-bigint 0.5.5 timing variability, via p256 0.13 in client-side DCAP
+# verification. The client only verifies signatures over public data and
+# holds no P-256 secret; see deny.toml.
+ignore = ["RUSTSEC-2026-0387"]
