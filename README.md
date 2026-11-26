@@ -16,6 +16,13 @@ inside it.
   ([README](enclave-sys/README.md)).
 * `extra/sequence.wsd`: the sequence diagram below (PlantUML).
 
+> **Note (2026-11-26):** the public executor at
+> `sgx-playground.blechschmidt.io` has been decommissioned due to costs.
+> The commands and outputs below that refer to it are kept for reference;
+> to try them, run your own executor (see [Compose, end-to-end tests and
+> CI](#compose-end-to-end-tests-and-ci)) and point the client at it with
+> `--host` and `--port`.
+
 ## Try it
 
 With Rust and a container engine (Docker or Podman) installed:

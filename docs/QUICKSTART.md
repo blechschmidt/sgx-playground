@@ -1,5 +1,9 @@
 # Quickstart: the Rust flow
 
+> **Note (2026-11-26):** `sgx-playground.blechschmidt.io` has been
+> decommissioned due to costs. Point the client at your own executor with
+> `--host` and `--port` instead.
+
 This walks through the full flow with the echo example. You rebuild the
 enclave reproducibly, attest the remote enclave at
 `sgx-playground.blechschmidt.io:443`, and exchange a message over the

@@ -12,8 +12,9 @@
 # the executor is redeployed (scripts/nix-build-host-image.sh on the host).
 name: live integration
 
+# sgx-playground.blechschmidt.io has been decommissioned due to costs, so
+# this job no longer runs on push; trigger it manually against a live executor.
 on:
-  push:
   workflow_dispatch:
 
 permissions:
