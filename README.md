@@ -40,6 +40,53 @@ can't change ([TCB_STATUS.md](docs/TCB_STATUS.md)).
 Pass `--strict-tcb` to accept only `UpToDate` platforms.
 See [QUICKSTART.md](docs/QUICKSTART.md) for details.
 
+### Live output
+
+Output of the command above against `sgx-playground.blechschmidt.io:443`
+on 2026-11-26, from a host with the classic Docker builder. Only the
+Docker/Nix build log is cut and the temporary directory shortened; the
+attestation lines are verbatim. The Nix build came from the Docker layer
+cache here; a cold build takes several minutes. The MRENCLAVE matches the
+[measurements table](#measurements-of-the-echo-enclave) below.
+
+```text
+$ cargo run --release -p echo-client
+     Building the enclave from source with docker (containers/Dockerfile.nix-build, context .); this can take several minutes
+INFO  sgx_ra_client::build: running "docker" "build" "-f" "containers/Dockerfile.nix-build" "-t" "sgx-ra-client-build:latest" "."
+[... Nix build output elided ...]
+[OK] Reproducible build finished; enclave measured by sgx_sign (/tmp/echo-client-build-…/out/enclave.so.gendata)
+[OK] Expected MRENCLAVE from the local build: 3f31f2322a4e22e136b60bc620b0de75e2c50737699f8d8b9e3af11da67aa3af
+     Build signing key MRSIGNER: 8b1beba60b7c004561b8eb5e8384ff03f988e3914e5c845ee3362b786b34efa6 (pin with --mrsigner if wanted)
+[OK] Connected to sgx-playground.blechschmidt.io:443 via TLS (TLSv1_3, TLS13_AES_256_GCM_SHA384, certificate verified against the Mozilla roots); TLS ends outside the enclave and is treated as an untrusted pipe
+INFO  echo_client::run: waiting for the quote announcement (up to 120 s)
+[OK] Received quote (4734 bytes)
+[OK] Quote structure valid: DCAP v3 ECDSA-P256 quote from the Intel QE, PCK certificate chain attached
+INFO  echo_client::run: fetching collateral from https://api.trustedservices.intel.com
+[OK] PCK certificate chain verified up to the pinned Intel SGX Root CA (SHA-256 44a0196b2b99f889b8e149e95b807a350e7424964399e885a7cbb8ccfab674d3); Intel SGX PCK Platform CA and Root CA CRLs checked, PCK certificate not revoked
+[OK] TCB Info (FMSPC 00606a000000) and QE Identity signed by Intel SGX TCB Signing; collateral valid until 2026-12-26T17:40:29Z (TCB evaluation data number 20)
+[OK] Quoting enclave report signed by the PCK key and matches QE Identity (QE TCB status UpToDate); attestation key bound to it
+[OK] Quote signature over header and enclave report verified with the attestation key
+[OK] Platform TCB status OutOfDateConfigurationNeeded (platform OutOfDateConfigurationNeeded, TCB date 2024-03-13T00:00:00Z); allowed by policy
+     Intel security advisories: INTEL-SA-00657, INTEL-SA-00767, INTEL-SA-01079, INTEL-SA-01103, INTEL-SA-01153, INTEL-SA-00615 (all on the advisory allowlist)
+     The best TCB level Intel defines for this platform type is SWHardeningNeeded (TCB date 2025-08-13T00:00:00Z); this platform falls short of it:
+       component 0 (BIOS, Early Microcode Update) is 14 < 15: update the BIOS / microcode of the physical host
+       component 1 (OS/VMM, SGX Late Microcode Update) is 14 < 16: load newer microcode in the host OS / VMM, or update the BIOS
+       component 6 is 0 < 1: update or reconfigure the BIOS of the physical host
+     Only the operator of the physical machine can raise these SVNs (docs/TCB_STATUS.md); nothing in the enclave, the host app or the client changes them
+[OK] Enclave is not in debug mode (DEBUG attribute clear) and is 64-bit
+[OK] Remote MRENCLAVE 3f31f2322a4e22e136b60bc620b0de75e2c50737699f8d8b9e3af11da67aa3af is identical to the local build: the remote runs exactly the code we built
+     MRSIGNER 8b1beba60b7c004561b8eb5e8384ff03f988e3914e5c845ee3362b786b34efa6 (not pinned)
+[OK] ISVPRODID 1 = 1 (from the build's SIGSTRUCT)
+[OK] ISVSVN 1 >= 1 (from the build's SIGSTRUCT)
+WARN  echo_client::run: accepted a platform with TCB status OutOfDateConfigurationNeeded (affected by INTEL-SA-00657, INTEL-SA-00767, INTEL-SA-01079, INTEL-SA-01103, INTEL-SA-01153, INTEL-SA-00615); pass --strict-tcb to require UpToDate
+[OK] Attested report_data binds the enclave's channel public key c4fc271ec431bdb436cff64640a6886a1fdddeff3316957a62e74f474cf4d67d: report_data = SHA-256("SGXRA-v1/report-data" || 00 01 || key) || 0^32 = a61ffae2ab289b6630aeaefafc82692116d188d19a48dc3de8c6534a9697a2e3…
+[OK] Handshake complete: the enclave proved possession of the attested private key (key confirmation verified); the key exists only inside the enclave with the verified MRENCLAVE
+[OK] Confidential channel established (X25519 + HKDF-SHA256, ChaCha20-Poly1305 records)
+[OK] Sent 18 bytes encrypted; reply of 18 bytes decrypted and authenticated
+Reply received from server: Hello, SGX server!
+[OK] Echo matches the request
+```
+
 > **Verifying needs no SGX.** The client, quote verifier and channel are
 > pure Rust with the Intel SGX Root CA compiled in, and they fetch
 > collateral from Intel's PCS by default. Any Linux/macOS host with Docker
